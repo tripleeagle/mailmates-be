@@ -24,7 +24,6 @@
     "allowUnusedLabels": true,
     "allowUnreachableCode": true,
     "exactOptionalPropertyTypes": false,
-    "skipLibCheck": true,
     "moduleResolution": "node",
     "baseUrl": "./",
     "paths": {
