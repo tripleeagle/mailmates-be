@@ -1,6 +1,6 @@
 # Logging System
 
-This backend uses Winston for comprehensive logging with multiple transports and log levels.
+This backend uses Winston for comprehensive logging with multiple transports and log levels...
 
 ## Features
 
