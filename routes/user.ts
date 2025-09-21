@@ -3,6 +3,7 @@ import Joi from 'joi';
 import { verifyIdToken, getFirestore } from '../config/firebase';
 import logger from '../config/logger';
 import { ApiResponse, User, AISettings } from '../types';
+import userService from '../services/userService';
 
 const router = express.Router();
 
@@ -53,41 +54,46 @@ const updateSettingsSchema = Joi.object({
 // Get user settings
 router.get('/settings', authenticateUser, async (req: Request, res: Response<ApiResponse<{ settings: UserSettings }>>) => {
   try {
-    const db = getFirestore();
     const userId = req.user!.uid;
+    const userEmail = req.user!.email;
     
-    const userDoc = await db.collection('users').doc(userId).get();
-    
-    if (!userDoc.exists) {
-      // Create default settings for new user
-      const defaultSettings: UserSettings = {
-        language: 'auto',
-        tone: 'auto',
-        length: 'auto',
-        aiModel: 'default',
-        customInstructions: ['Less AI, more human'],
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      await db.collection('users').doc(userId).set(defaultSettings);
-      
-      logger.info('Created default user settings', { userId });
-      
-      return res.json({
-        success: true,
-        data: {
-          settings: defaultSettings
-        }
+    if (!userEmail) {
+      logger.warn('User email not available in token', { userId });
+      res.status(400).json({
+        success: false,
+        error: 'User email not available. Please log in again.'
       });
+      return;
     }
     
-    const userData = userDoc.data() as UserSettings;
+    // Get user data using email
+    const userData = await userService.getUserByEmail(userEmail);
+    
+    if (!userData) {
+      // This shouldn't happen if user was properly stored during auth
+      logger.warn('User not found in database', { userId, email: userEmail });
+      res.status(404).json({
+        success: false,
+        error: 'User not found. Please log in again.'
+      });
+      return;
+    }
+    
+    // Convert to UserSettings format (excluding profile fields)
+    const settings: UserSettings = {
+      language: userData.language,
+      tone: userData.tone,
+      length: userData.length,
+      aiModel: userData.aiModel,
+      customInstructions: userData.customInstructions,
+      createdAt: userData.createdAt,
+      updatedAt: userData.updatedAt
+    };
     
     res.json({
       success: true,
       data: {
-        settings: userData
+        settings
       }
     });
   } catch (error) {
@@ -115,37 +121,50 @@ router.put('/settings', authenticateUser, async (req: Request<{}, ApiResponse<{ 
       });
     }
 
-    const db = getFirestore();
     const userId = req.user!.uid;
+    const userEmail = req.user!.email;
     const { settings } = value;
     
-    // Get current settings
-    const userDoc = await db.collection('users').doc(userId).get();
-    let currentSettings: UserSettings;
+    if (!userEmail) {
+      logger.warn('User email not available in token', { userId });
+      res.status(400).json({
+        success: false,
+        error: 'User email not available. Please log in again.'
+      });
+      return;
+    }
     
-    if (!userDoc.exists) {
-      // Create new user with default settings
-      currentSettings = {
-        language: 'auto',
-        tone: 'auto',
-        length: 'auto',
-        aiModel: 'default',
-        customInstructions: ['Less AI, more human'],
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-    } else {
-      currentSettings = userDoc.data() as UserSettings;
+    // Get current user data using email
+    const currentUser = await userService.getUserByEmail(userEmail);
+    
+    if (!currentUser) {
+      logger.warn('User not found when updating settings', { userId, email: userEmail });
+      res.status(404).json({
+        success: false,
+        error: 'User not found. Please log in again.'
+      });
+      return;
     }
     
     // Update settings
     const updatedSettings: UserSettings = {
-      ...currentSettings,
-      ...settings,
-      updatedAt: new Date()
+      language: currentUser.language,
+      tone: currentUser.tone,
+      length: currentUser.length,
+      aiModel: currentUser.aiModel,
+      customInstructions: currentUser.customInstructions,
+      createdAt: currentUser.createdAt,
+      updatedAt: new Date(),
+      ...settings
     };
     
-    await db.collection('users').doc(userId).set(updatedSettings);
+    // Store updated settings using user service
+    await userService.storeUser({
+      uid: userId,
+      email: currentUser.email,
+      name: currentUser.name,
+      picture: currentUser.picture
+    } as any); // Type assertion needed due to DecodedIdToken interface
     
     logger.info('User settings updated', { userId, updatedFields: Object.keys(settings) });
     
@@ -200,11 +219,25 @@ router.delete('/account', authenticateUser, async (req: Request, res: Response<A
   try {
     const db = getFirestore();
     const userId = req.user!.uid;
+    const userEmail = req.user!.email;
     
-    // Delete user data from Firestore
-    await db.collection('users').doc(userId).delete();
+    if (!userEmail) {
+      logger.warn('User email not available in token', { userId });
+      res.status(400).json({
+        success: false,
+        error: 'User email not available. Please log in again.'
+      });
+      return;
+    }
     
-    // Delete usage logs
+    // Delete user data from Firestore using email
+    const userQuery = await db.collection('users').where('email', '==', userEmail).limit(1).get();
+    
+    if (!userQuery.empty) {
+      await userQuery.docs[0].ref.delete();
+    }
+    
+    // Delete usage logs by email
     const usageQuery = db.collection('usage_logs').where('userId', '==', userId);
     const usageSnapshot = await usageQuery.get();
     
@@ -214,7 +247,7 @@ router.delete('/account', authenticateUser, async (req: Request, res: Response<A
     });
     await batch.commit();
     
-    logger.info('User account deleted', { userId });
+    logger.info('User account deleted', { userId, email: userEmail });
     
     res.json({
       success: true,
@@ -223,6 +256,7 @@ router.delete('/account', authenticateUser, async (req: Request, res: Response<A
   } catch (error) {
     logger.error('Failed to delete user account', {
       userId: req.user?.uid || 'unknown',
+      email: req.user?.email || 'unknown',
       error: (error as Error).message
     });
     res.status(500).json({

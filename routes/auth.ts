@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { verifyIdToken, getFirebaseApp } from '../config/firebase';
 import logger from '../config/logger';
 import { ApiResponse, User } from '../types';
+import userService from '../services/userService';
 
 const router = express.Router();
 
@@ -28,19 +29,24 @@ router.post('/verify-token', async (req: Request<{}, ApiResponse<{ user: User }>
 
     const decodedToken = await verifyIdToken(token);
     
-    logger.logAuth('token_verification', decodedToken.uid, true, {
+    // Store/update user data in backend after successful verification
+    const storedUser = await userService.storeUser(decodedToken);
+    
+    logger.logAuth('token_verification', decodedToken.email || decodedToken.uid, true, {
       email: decodedToken.email,
-      ip: req.ip
+      uid: decodedToken.uid,
+      ip: req.ip,
+      userStored: true
     });
     
     res.json({
       success: true,
       data: {
         user: {
-          uid: decodedToken.uid,
-          email: decodedToken.email,
-          name: decodedToken.name,
-          picture: decodedToken.picture
+          uid: storedUser.uid,
+          email: storedUser.email,
+          name: storedUser.name,
+          picture: storedUser.picture
         }
       }
     });
