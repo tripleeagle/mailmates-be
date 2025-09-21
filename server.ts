@@ -16,6 +16,8 @@ import usageRoutes from './routes/usage';
 import { initializeFirebase } from './config/firebase';
 import { errorHandler } from './middleware/errorHandler';
 
+// Load environment variables from .env.local first, then .env
+dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const app: Application = express();

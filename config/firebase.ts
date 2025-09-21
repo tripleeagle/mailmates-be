@@ -4,8 +4,6 @@ import logger from './logger';
 
 let firebaseApp: admin.app.App | null = null;
 
-
-
 const initializeFirebase = (): admin.app.App | null => {
   try {
     // Check if Firebase is already initialized
@@ -23,10 +21,14 @@ const initializeFirebase = (): admin.app.App | null => {
     const serviceAccount: ServiceAccount = {
       projectId: process.env.FIREBASE_PROJECT_ID ?? '',
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL ?? '',
-      privateKey: process.env.FIREBASE_PRIVATE_KEY_ID ?? ''
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n') ?? ''
     };
 
-    logger.info('Initializing Firebase Admin SDK', { serviceAccount });
+    logger.info('Firebase service account configured', { 
+      projectId: serviceAccount.projectId,
+      clientEmail: serviceAccount.clientEmail 
+    });
+
     firebaseApp = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       projectId: process.env.FIREBASE_PROJECT_ID,
