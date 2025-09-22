@@ -13,7 +13,7 @@ import authRoutes from './api/auth';
 import generateRoutes from './api/generate';
 import userRoutes from './api/user';
 import usageRoutes from './api/usage';
-import { initializeFirebase } from './config/firebase';
+import { initializeFirebaseWithValidation } from './config/firebase';
 import { errorHandler } from './middleware/errorHandler';
 
 // Load environment variables from .env.local first, then .env
@@ -23,15 +23,49 @@ dotenv.config();
 const app: Application = express();
 const PORT: string | number = process.env.PORT || 3100;
 
-// Initialize Firebase
-initializeFirebase();
-
 // Log server startup
 logger.info('Starting AI Email Assistant Backend', {
   port: PORT,
   environment: process.env.NODE_ENV || 'development',
   version: process.env.npm_package_version || '1.0.0'
 });
+
+// Initialize Firebase with validation
+const initializeApp = async (): Promise<void> => {
+  try {
+    const firebaseApp = await initializeFirebaseWithValidation();
+    
+    if (!firebaseApp) {
+      logger.error('Critical: Firebase initialization failed. Server will start but authentication features will be unavailable.', {
+        error: 'Firebase initialization returned null',
+        impact: 'Authentication and user management features will not work'
+      });
+      
+      // In production, you might want to exit here
+      if (process.env.NODE_ENV === 'production') {
+        logger.error('Exiting due to Firebase initialization failure in production environment');
+        process.exit(1);
+      }
+    } else {
+      logger.info('Firebase initialization successful - all services are ready');
+    }
+  } catch (error) {
+    logger.error('Critical: Firebase initialization threw an exception', {
+      error: (error as Error).message,
+      stack: (error as Error).stack,
+      impact: 'Authentication and user management features will not work'
+    });
+    
+    // In production, exit on Firebase initialization failure
+    if (process.env.NODE_ENV === 'production') {
+      logger.error('Exiting due to Firebase initialization exception in production environment');
+      process.exit(1);
+    }
+  }
+};
+
+// Initialize Firebase before setting up routes
+initializeApp();
 
 // Security middleware
 app.use(helmet({
@@ -83,11 +117,29 @@ app.use(morgan('combined', { stream: logger.stream }));
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
-  res.json({ 
-    status: 'healthy', 
+  const { getFirebaseApp } = require('./config/firebase');
+  const firebaseApp = getFirebaseApp();
+  
+  const healthStatus = {
+    status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: process.env.npm_package_version || '1.0.0'
-  });
+    version: process.env.npm_package_version || '1.0.0',
+    services: {
+      firebase: firebaseApp ? 'connected' : 'disconnected',
+      firestore: firebaseApp ? 'available' : 'unavailable'
+    }
+  };
+
+  // Return 503 if critical services are down in production
+  if (process.env.NODE_ENV === 'production' && !firebaseApp) {
+    return res.status(503).json({
+      ...healthStatus,
+      status: 'unhealthy',
+      message: 'Critical services unavailable'
+    });
+  }
+
+  res.json(healthStatus);
 });
 
 // API routes

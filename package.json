@@ -9,6 +9,7 @@
     "dev": "ts-node server.ts",
     "dev:watch": "nodemon --exec ts-node server.ts",
     "test": "jest",
+    "test:firebase": "ts-node scripts/test-firebase.ts",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
