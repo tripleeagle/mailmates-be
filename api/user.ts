@@ -1,9 +1,9 @@
 import express, { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
-import { verifyIdToken, getFirestore } from '../../config/firebase';
-import logger from '../../config/logger';
-import { ApiResponse, User, AISettings } from '../../types';
-import userService from '../../services/userService';
+import { verifyIdToken, getFirestore } from '../config/firebase';
+import logger from '../config/logger';
+import { ApiResponse, User, AISettings } from '../types';
+import userService from '../services/userService';
 
 const router = express.Router();
 

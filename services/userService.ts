@@ -1,4 +1,4 @@
-import { getFirestore } from '../config/firebase';
+import { getFirestore, initializeFirebase } from '../config/firebase';
 import logger from '../config/logger';
 import { User, AISettings } from '../types';
 import { DecodedIdToken } from 'firebase-admin/auth';
@@ -14,7 +14,11 @@ export interface StoredUser extends AISettings {
 }
 
 class UserService {
-  private db = getFirestore();
+  private get db() {
+    // Ensure Firebase is initialized before accessing Firestore
+    initializeFirebase();
+    return getFirestore();
+  }
 
   /**
    * Store or update user data after successful authentication

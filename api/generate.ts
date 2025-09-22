@@ -1,9 +1,9 @@
 import express, { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
-import { verifyIdToken } from '../../config/firebase';
-import aiService from '../../services/aiService';
-import logger from '../../config/logger';
-import { GenerateRequest, ApiResponse, AIResponse, UsageData, User } from '../../types';
+import { verifyIdToken } from '../config/firebase';
+import aiService from '../services/aiService';
+import logger from '../config/logger';
+import { GenerateRequest, ApiResponse, AIResponse, UsageData, User } from '../types';
 
 const router = express.Router();
 
@@ -170,7 +170,7 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
 // Log usage for analytics
 async function logUsage(userId: string, usageData: UsageData): Promise<void> {
   try {
-    const { getFirestore } = await import('../../config/firebase');
+    const { getFirestore } = await import('../config/firebase');
     const db = getFirestore();
     
     const usageRecord = {

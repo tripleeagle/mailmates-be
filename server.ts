@@ -9,10 +9,10 @@ import dotenv from 'dotenv';
 // Import logger
 import logger from './config/logger';
 
-import authRoutes from './api/routes/auth';
-import generateRoutes from './api/routes/generate';
-import userRoutes from './api/routes/user';
-import usageRoutes from './api/routes/usage';
+import authRoutes from './api/auth';
+import generateRoutes from './api/generate';
+import userRoutes from './api/user';
+import usageRoutes from './api/usage';
 import { initializeFirebase } from './config/firebase';
 import { errorHandler } from './middleware/errorHandler';
 

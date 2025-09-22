@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { verifyIdToken, getFirestore } from '../../config/firebase';
-import logger from '../../config/logger';
-import { ApiResponse, UsageData } from '../../types';
+import { verifyIdToken, getFirestore } from '../config/firebase';
+import logger from '../config/logger';
+import { ApiResponse, UsageData } from '../types';
 
 const router = express.Router();
 
