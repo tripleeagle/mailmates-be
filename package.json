@@ -40,7 +40,7 @@
     "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=20.0.0 <21.0.0"
+    "node": "20.x"
   },
   "keywords": [
     "ai",
