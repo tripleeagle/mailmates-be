@@ -1,14 +1,5 @@
 import winston from 'winston';
-import DailyRotateFile from 'winston-daily-rotate-file';
-import path from 'path';
-import fs from 'fs';
 import { LogContext } from '../types';
-
-// Create logs directory if it doesn't exist
-const logsDir = path.join(__dirname, '..', 'logs');
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
-}
 
 // Custom format for console output
 const consoleFormat = winston.format.combine(
@@ -32,14 +23,7 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-// Custom format for file output
-const fileFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.errors({ stack: true }),
-  winston.format.json()
-);
-
-// Create transports
+// Create transports - console only
 const transports = [
   // Console transport
   new winston.transports.Console({
@@ -48,42 +32,12 @@ const transports = [
     handleExceptions: true,
     handleRejections: true,
   }),
-  
-  // Combined log file (all logs)
-  new DailyRotateFile({
-    filename: path.join(logsDir, 'combined-%DATE%.log'),
-    datePattern: 'YYYY-MM-DD',
-    maxSize: '20m',
-    maxFiles: '14d',
-    format: fileFormat,
-    level: 'info',
-  }),
-  
-  // Error log file (errors and above)
-  new DailyRotateFile({
-    filename: path.join(logsDir, 'error-%DATE%.log'),
-    datePattern: 'YYYY-MM-DD',
-    maxSize: '20m',
-    maxFiles: '30d',
-    format: fileFormat,
-    level: 'error',
-  }),
-  
-  // HTTP access log file
-  new DailyRotateFile({
-    filename: path.join(logsDir, 'access-%DATE%.log'),
-    datePattern: 'YYYY-MM-DD',
-    maxSize: '20m',
-    maxFiles: '7d',
-    format: fileFormat,
-    level: 'http',
-  }),
 ];
 
 // Create the logger
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
-  format: fileFormat,
+  format: consoleFormat,
   transports,
   exitOnError: false,
 });

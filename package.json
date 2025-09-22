@@ -9,9 +9,6 @@
     "dev": "ts-node server.ts",
     "dev:watch": "nodemon --exec ts-node server.ts",
     "test": "jest",
-    "logs:list": "npx ts-node scripts/logs.ts list",
-    "logs:tail": "npx ts-node scripts/logs.ts tail",
-    "logs:clear": "npx ts-node scripts/logs.ts clear",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -28,8 +25,7 @@
     "joi": "^17.11.0",
     "morgan": "^1.10.0",
     "openai": "^4.20.1",
-    "winston": "^3.17.0",
-    "winston-daily-rotate-file": "^5.0.0"
+    "winston": "^3.17.0"
   },
   "devDependencies": {
     "@types/compression": "^1.7.5",
