@@ -22,6 +22,9 @@ dotenv.config();
 
 const app: Application = express();
 
+// Trust proxy for proper rate limiting behind reverse proxies (Vercel, etc.)
+app.set('trust proxy', 1);
+
 // Initialize Firebase
 initializeFirebase();
 
