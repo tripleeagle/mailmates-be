@@ -126,7 +126,7 @@ npm run test:firebase
 npm run dev
 
 # Check health endpoint
-curl http://localhost:3100/health
+curl http://localhost:5100/health
 ```
 
 ## Implementation Details

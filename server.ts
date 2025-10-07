@@ -21,7 +21,7 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const app: Application = express();
-const PORT: string | number = process.env.PORT || 3100;
+const PORT: string | number = process.env.PORT || 5100;
 
 // Trust proxy for proper rate limiting behind reverse proxies (Vercel, etc.)
 app.set('trust proxy', 1);
