@@ -349,12 +349,20 @@ vercel --debug
 
 ### 4. Rate Limiting
 
-Your app includes rate limiting (100 requests per 15 minutes per IP). Adjust in `server.ts`:
+Your app includes rate limiting (default: 500 requests per 15 minutes per IP). Configure via environment variables:
+
+```bash
+# In your .env or Vercel environment variables
+RATE_LIMIT_WINDOW_MS=900000    # 15 minutes in milliseconds
+RATE_LIMIT_MAX_REQUESTS=500    # Max requests per window
+```
+
+The rate limiter will use these environment variables in `server.ts` and `api/index.ts`:
 
 ```typescript
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Adjust based on your needs
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '500', 10),
   // ... other options
 });
 ```

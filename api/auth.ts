@@ -10,6 +10,10 @@ interface VerifyTokenRequest {
   token: string;
 }
 
+interface RefreshTokenRequest {
+  uid: string;
+}
+
 // Verify token endpoint
 router.post('/verify-token', async (req: Request<{}, ApiResponse<{ user: User }>, VerifyTokenRequest>, res: Response<ApiResponse<{ user: User }>>) => {
   try {
@@ -51,11 +55,52 @@ router.post('/verify-token', async (req: Request<{}, ApiResponse<{ user: User }>
       }
     });
   } catch (error) {
+    const errorMessage = (error as Error).message;
+    const isTokenExpired = errorMessage.includes('auth/id-token-expired');
+    
     logger.logAuth('token_verification', 'unknown', false, {
+      error: errorMessage,
+      expired: isTokenExpired,
+      ip: req.ip
+    });
+    
+    // Return appropriate error message based on token expiration
+    const errorMsg = isTokenExpired ? 'Token expired' : 'Invalid token';
+    res.status(401).json({ 
+      success: false, 
+      error: errorMsg
+    });
+  }
+});
+
+// Refresh token endpoint - client should get a fresh token from Firebase client SDK
+router.post('/refresh-token', async (req: Request<{}, ApiResponse<{ message: string }>, RefreshTokenRequest>, res: Response<ApiResponse<{ message: string }>>) => {
+  try {
+    const { uid } = req.body;
+    
+    if (!uid) {
+      logger.logSecurity('Token refresh failed', { reason: 'Missing uid', ip: req.ip });
+      return res.status(400).json({ success: false, error: 'User ID is required' });
+    }
+
+    logger.logAuth('token_refresh', uid, true, {
+      ip: req.ip
+    });
+    
+    // Client should get a fresh token from Firebase Auth SDK (auth.currentUser.getIdToken(true))
+    // This endpoint just logs the refresh event
+    res.json({
+      success: true,
+      data: {
+        message: 'Please get a fresh token from Firebase client SDK'
+      }
+    });
+  } catch (error) {
+    logger.logAuth('token_refresh', 'unknown', false, {
       error: (error as Error).message,
       ip: req.ip
     });
-    res.status(401).json({ success: false, error: 'Invalid token' });
+    res.status(500).json({ success: false, error: 'Token refresh failed' });
   }
 });
 
