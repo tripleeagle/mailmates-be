@@ -283,7 +283,7 @@ Your task is to:
 2. Generate a professional, contextual reply based on the quick reply type (e.g., "Yes", "No", "Thanks", or custom instructions)
 3. Keep the reply brief but professional (1-3 sentences)
 4. Match the tone of the original email
-5. Include proper greetings and closings appropriate for the context
+5. Include proper greetings and closings appropriate for the context with appropriate formatting (e.g. greeting on one line, main point on another line, etc.)
 6. Make the reply sound natural and personalized, not robotic
 
 Return ONLY the reply text without any JSON formatting, quotes, or metadata.`;
