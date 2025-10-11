@@ -26,6 +26,11 @@ interface SummarizeRequest {
   emailContent: string;
 }
 
+interface QuickReplyRequest {
+  quickReplyType: string;
+  emailContent: string;
+}
+
 // Middleware to verify authentication
 const authenticateUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -162,6 +167,55 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
     res.status(500).json({
       success: false,
       error: 'Failed to summarize email',
+      message: (error as Error).message
+    });
+  }
+});
+
+// Quick reply endpoint
+router.post('/quick-reply', authenticateUser, async (req: Request<{}, ApiResponse<{ reply: string }>, QuickReplyRequest>, res: Response<ApiResponse<{ reply: string }>>) => {
+  try {
+    const { quickReplyType, emailContent } = req.body;
+    
+    if (!quickReplyType || typeof quickReplyType !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Quick reply type is required'
+      });
+    }
+
+    if (!emailContent || typeof emailContent !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Email content is required'
+      });
+    }
+
+    const reply = await aiService.generateQuickReply(quickReplyType, emailContent);
+
+    logger.info('Quick reply generation completed', {
+      userId: req.user!.uid,
+      quickReplyType,
+      contentLength: emailContent.length,
+      replyLength: reply.length
+    });
+
+    res.json({
+      success: true,
+      data: {
+        reply
+      }
+    });
+
+  } catch (error) {
+    logger.error('Quick reply generation failed', {
+      userId: req.user?.uid || 'unknown',
+      error: (error as Error).message,
+      stack: (error as Error).stack
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate quick reply',
       message: (error as Error).message
     });
   }

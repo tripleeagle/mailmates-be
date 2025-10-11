@@ -264,6 +264,67 @@ Requirements:
       return 'Email content could not be summarized.';
     }
   }
+
+  async generateQuickReply(quickReplyType: string, emailContent: string): Promise<string> {
+    if (!this.openai) {
+      throw new Error('Quick reply generation not available - OpenAI API key not configured.');
+    }
+    
+    logger.info('Generating quick reply', { 
+      quickReplyType, 
+      contentLength: emailContent.length 
+    });
+
+    try {
+      const systemPrompt = `You are an AI email assistant that generates quick, contextual email replies.
+      
+Your task is to:
+1. Read the provided email content
+2. Generate a professional, contextual reply based on the quick reply type (e.g., "Yes", "No", "Thanks", or custom instructions)
+3. Keep the reply brief but professional (1-3 sentences)
+4. Match the tone of the original email
+5. Include proper greetings and closings appropriate for the context
+6. Make the reply sound natural and personalized, not robotic
+
+Return ONLY the reply text without any JSON formatting, quotes, or metadata.`;
+
+      const userPrompt = `Quick Reply Type: "${quickReplyType}"
+
+Original Email Content:
+${emailContent}
+
+Generate a brief, professional reply based on the quick reply type above. The reply should be contextual to the email content and sound natural.`;
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-5-nano',
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: userPrompt
+          }
+        ]
+      });
+
+      const reply = response.choices[0].message.content?.trim() || quickReplyType;
+      logger.info('Quick reply generated successfully', { 
+        quickReplyType, 
+        replyLength: reply.length 
+      });
+      
+      return reply;
+    } catch (error) {
+      logger.error('Quick reply generation error', { 
+        quickReplyType,
+        error: (error as Error).message 
+      });
+      // Return the basic quick reply type as fallback
+      return quickReplyType;
+    }
+  }
 }
 
 export default new AIService();
