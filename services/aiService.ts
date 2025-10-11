@@ -39,21 +39,26 @@ class AIService {
     try {
       let result: AIProviderResponse;
       
-      switch (model) {
-        case 'gpt-4o':
+      switch (model.toLowerCase()) {
+        case 'gpt-5-nano':
         case 'default':
           result = await this.generateWithOpenAI(prompt, settings, emailContext);
           break;
-        case 'claude-3':
+        case 'claude-3.5-sonnet':
+        case 'claude-3.5':
+        case 'claude':
           result = await this.generateWithClaude(prompt, settings, emailContext);
           break;
-        case 'gemini-2.5':
+        case 'gemini-2.0':
+        case 'gemini':
           result = await this.generateWithGemini(prompt, settings, emailContext);
           break;
         case 'llama-3.1':
+        case 'llama':
           result = await this.generateWithLlama(prompt, settings, emailContext);
           break;
-        case 'deepseek-v3.1':
+        case 'deepseek-v3':
+        case 'deepseek':
           result = await this.generateWithDeepSeek(prompt, settings, emailContext);
           break;
         default:
@@ -91,7 +96,7 @@ class AIService {
     const systemPrompt = this.buildSystemPrompt(settings, emailContext);
     
     const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5-nano',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
@@ -126,23 +131,27 @@ class AIService {
     
     const systemPrompt = this.buildSystemPrompt(settings, emailContext);
     
-    const response = await this.anthropic.completions.create({
-      model: 'claude-3-sonnet-20240229',
-      max_tokens_to_sample: 1000,
-      prompt: `${systemPrompt}\n\nHuman: ${prompt}\n\nAssistant:`
+    // Using type assertion since the SDK types may not be fully up to date
+    const response = await (this.anthropic as any).messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1000,
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+      system: systemPrompt
     });
 
     const processingTime = Date.now() - startTime;
-    const content = response.completion;
+    const content = response.content[0].type === 'text' ? response.content[0].text : '';
     const parsedContent = JSON.parse(content);
 
     return {
       subject: parsedContent.subject,
       body: parsedContent.body,
       tokensUsed: {
-        input: 0, // Anthropic completions API doesn't provide token usage
-        output: 0,
-        total: 0
+        input: response.usage?.input_tokens || 0,
+        output: response.usage?.output_tokens || 0,
+        total: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0)
       },
       processingTime
     };
@@ -156,8 +165,13 @@ class AIService {
     const startTime = Date.now();
     
     const systemPrompt = this.buildSystemPrompt(settings, emailContext);
-    const model = this.googleAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
     
+    // Use gemini-2.0-flash-exp if available, otherwise fallback to gemini-1.5-pro
+    const model = this.googleAI.getGenerativeModel({ 
+      model: 'gemini-2.0-flash-exp'
+    } as any);
+    
+    // Include system prompt in the user message
     const fullPrompt = `${systemPrompt}\n\nUser Request: ${prompt}`;
     
     const result = await model.generateContent(fullPrompt);
@@ -167,10 +181,17 @@ class AIService {
 
     const processingTime = Date.now() - startTime;
 
+    // Gemini 2.0 provides token usage information
+    const usageMetadata = (response as any).usageMetadata;
+
     return {
       subject: parsedContent.subject,
       body: parsedContent.body,
-      tokensUsed: { input: 0, output: 0, total: 0 }, // Gemini doesn't provide token count in free tier
+      tokensUsed: { 
+        input: usageMetadata?.promptTokenCount || 0, 
+        output: usageMetadata?.candidatesTokenCount || 0, 
+        total: usageMetadata?.totalTokenCount || 0 
+      },
       processingTime
     };
   }
@@ -224,7 +245,7 @@ Requirements:
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-5-nano',
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
