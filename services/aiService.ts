@@ -217,24 +217,24 @@ Requirements:
 
   async summarizeEmail(emailContent: string): Promise<string> {
     if (!this.openai) {
-      return 'Email summarization not available - OpenAI API key not configured.';
+      throw new Error('Email summarization not available - OpenAI API key not configured.');
     }
     
+    logger.info('Summarizing email', { contentLength: emailContent.length });
+
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-5-nano',
         messages: [
           {
             role: 'system',
-            content: 'Summarize the following email content in 2-3 sentences. Focus on the main points and key information.'
+            content: 'You are an email summarizer. Your task is to read the content of an email and generate a clear, concise summary of 1–3 sentences. Focus only on the main points, such as purpose, requests, key updates, or next steps. Exclude greetings, signatures, and unnecessary details. The summary should be neutral, factual, and easy to scan quickly.'
           },
           {
             role: 'user',
             content: emailContent
           }
-        ],
-        max_tokens: 150,
-        temperature: 0.3
+        ]
       });
 
       return response.choices[0].message.content?.trim() || 'Could not generate summary.';

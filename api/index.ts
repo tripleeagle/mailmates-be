@@ -1,10 +1,14 @@
+// Load environment variables FIRST before any other imports
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+dotenv.config();
+
 import express, { Request, Response, Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 
 // Import logger
 import logger from '../config/logger';
@@ -15,10 +19,6 @@ import userRoutes from './user';
 import usageRoutes from './usage';
 import { initializeFirebase } from '../config/firebase';
 import { errorHandler } from '../middleware/errorHandler';
-
-// Load environment variables from .env.local first, then .env
-dotenv.config({ path: '.env.local' });
-dotenv.config();
 
 const app: Application = express();
 
