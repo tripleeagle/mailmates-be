@@ -101,8 +101,6 @@ class AIService {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 1000,
-      temperature: 0.7,
       response_format: { type: "json_object" }
     });
 
