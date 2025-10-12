@@ -56,10 +56,21 @@ router.post('/verify-token', async (req: Request<{}, ApiResponse<{ user: User }>
     });
   } catch (error) {
     const errorMessage = (error as Error).message;
-    const isTokenExpired = errorMessage.includes('auth/id-token-expired');
+    const errorCode = (error as any).code || '';
+    
+    // Check multiple ways to detect token expiration
+    const isTokenExpired = 
+      errorMessage.includes('auth/id-token-expired') || 
+      errorMessage.includes('token has expired') ||
+      errorCode === 'auth/id-token-expired';
+    
+    logger.error('Token verification error', { 
+      error: errorMessage,
+      code: errorCode
+    });
     
     logger.logAuth('token_verification', 'unknown', false, {
-      error: errorMessage,
+      error: isTokenExpired ? 'Token expired' : 'Invalid token',
       expired: isTokenExpired,
       ip: req.ip
     });
