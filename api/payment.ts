@@ -43,8 +43,8 @@ const PRODUCT_IDS = {
   pro_annual: process.env.STRIPE_PRODUCT_ID_PRO_ANNUAL || '',
 };
 
-// Create checkout session
-router.post('/create-checkout-session', authenticateUser, async (req: Request, res: Response<ApiResponse<{ sessionId: string; url: string }>>) => {
+// Shared checkout session creation logic
+const createCheckoutSessionHandler = async (req: Request, res: Response<ApiResponse<{ sessionId: string; url: string }>>) => {
   try {
     const userId = req.user!.uid;
     const userEmail = req.user!.email;
@@ -172,7 +172,13 @@ router.post('/create-checkout-session', authenticateUser, async (req: Request, r
       error: 'Failed to create checkout session',
     });
   }
-});
+};
+
+// Create checkout session (original endpoint)
+router.post('/create-checkout-session', authenticateUser, createCheckoutSessionHandler);
+
+// Stripe checkout endpoint (simpler alias)
+router.post('/checkout', authenticateUser, createCheckoutSessionHandler);
 
 // Get subscription status
 router.get('/subscription', authenticateUser, async (req: Request, res: Response<ApiResponse<{ subscription: any }>>) => {
