@@ -117,7 +117,7 @@ router.post('/create-checkout-session', authenticateUser, async (req: Request, r
     // Get frontend URL for success/cancel redirects
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const successUrl = `${frontendUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${frontendUrl}/pricing`;
+    const cancelUrl = `${frontendUrl}/payment/cancel`;
 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
