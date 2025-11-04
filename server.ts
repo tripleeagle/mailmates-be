@@ -17,6 +17,7 @@ import authRoutes from './api/auth';
 import generateRoutes from './api/generate';
 import userRoutes from './api/user';
 import usageRoutes from './api/usage';
+import paymentRoutes from './api/payment';
 import { initializeFirebaseWithValidation } from './config/firebase';
 import { errorHandler } from './middleware/errorHandler';
 
@@ -108,8 +109,14 @@ const limiter = rateLimit({
 
 app.use('/api/', limiter);
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
+// Body parsing middleware (exclude webhook routes that need raw body)
+app.use((req, res, next) => {
+  // Skip JSON parsing for Stripe webhook
+  if (req.path === '/api/payment/webhook') {
+    return next();
+  }
+  express.json({ limit: '10mb' })(req, res, next);
+});
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Compression middleware
@@ -150,6 +157,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/generate', generateRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/usage', usageRoutes);
+app.use('/api/payment', paymentRoutes);
 
 // 404 handler
 app.use('*', (req: Request, res: Response) => {
