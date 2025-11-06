@@ -31,7 +31,8 @@ app.set('trust proxy', 1);
 logger.info('Starting AI Email Assistant Backend', {
   port: PORT,
   environment: process.env.NODE_ENV || 'development',
-  version: process.env.npm_package_version || '1.0.0'
+  version: process.env.npm_package_version || '1.0.0',
+  feUrl: process.env.FRONTEND_URL
 });
 
 // Initialize Firebase with validation
