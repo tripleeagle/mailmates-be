@@ -32,7 +32,8 @@ initializeFirebase();
 // Log server startup
 logger.info('Starting AI Email Assistant Backend (Vercel)', {
   environment: process.env.NODE_ENV || 'production',
-  version: process.env.npm_package_version || '1.0.0'
+  version: process.env.npm_package_version || '1.0.0',
+  feUrl: process.env.FRONTEND_URL || 'http://localhost:3000'
 });
 
 // Security middleware
