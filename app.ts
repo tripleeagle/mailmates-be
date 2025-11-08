@@ -7,7 +7,7 @@ import rateLimit from 'express-rate-limit';
 import corsHandler from './middleware/corsHandler';
 import { errorHandler } from './middleware/errorHandler';
 import logger from './config/logger';
-import { initializeFirebase, getFirebaseApp } from './config/firebase';
+import { initializeFirebaseWithValidation, getFirebaseApp } from './config/firebase';
 import authRoutes from './api/auth';
 import generateRoutes from './api/generate';
 import userRoutes from './api/user';
@@ -31,7 +31,7 @@ export function createApp(options: CreateAppOptions = {}): Application {
     startupLogContext = {},
   } = options;
 
-  initializeFirebase();
+  initializeFirebaseWithValidation();
 
   const app: Application = express();
 
