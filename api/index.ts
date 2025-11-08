@@ -4,7 +4,6 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 import express, { Request, Response, Application } from 'express';
-import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
@@ -49,37 +48,37 @@ app.use(helmet({
   },
 }));
 
-const origins = [
-  'chrome-extension://*',
-  'https://mail.google.com',
-  process.env.FRONTEND_URL || 'http://localhost:3000'
-];
-logger.info('CORS origins: ', origins);
+// const origins = [
+//   'chrome-extension://*',
+//   'https://mail.google.com',
+//   process.env.FRONTEND_URL || 'http://localhost:3000'
+// ];
+// logger.info('CORS origins: ', origins);
 
-// CORS configuration
-const corsOptions: CorsOptions = {
-  origin: origins,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-};
+// // CORS configuration
+// const corsOptions: CorsOptions = {
+//   origin: origins,
+//   credentials: true,
+//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+//   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+// };
 
-const corsMiddleware = cors(corsOptions);
+// const corsMiddleware = cors(corsOptions);
 
-app.use((req, res, next) => {
-  corsMiddleware(req, res, (err) => {
-    if (err) {
-      logger.error('CORS request failed', {
-        error: err.message,
-        origin: req.headers.origin,
-        method: req.method,
-        path: req.originalUrl
-      });
-      return next(err);
-    }
-    return next();
-  });
-});
+// app.use((req, res, next) => {
+//   corsMiddleware(req, res, (err) => {
+//     if (err) {
+//       logger.error('CORS request failed', {
+//         error: err.message,
+//         origin: req.headers.origin,
+//         method: req.method,
+//         path: req.originalUrl
+//       });
+//       return next(err);
+//     }
+//     return next();
+//   });
+// });
 
 // Rate limiting
 const limiter = rateLimit({
