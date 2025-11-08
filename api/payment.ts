@@ -394,6 +394,13 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req: R
               billingPeriod,
             });
           }
+          else {
+            logger.error('User not found in database', {
+              userId,
+              userEmail,
+              metadata: session.metadata
+            });
+          }
         } catch (error) {
           logger.error('Failed to update user subscription in database', {
             userId,
