@@ -48,7 +48,7 @@ app.use(helmet({
     },
   },
 }));
-app.use('/api', corsHandler);
+app.use(corsHandler);
 // Rate limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // Default: 15 minutes
