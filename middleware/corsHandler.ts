@@ -4,6 +4,8 @@ import logger from '../config/logger';
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'chrome-extension://*',
+  'https://mail.google.com',
   'https://test.mailmates.app',
   'https://mailmates.app'
 ];
