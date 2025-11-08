@@ -138,9 +138,6 @@ export interface EnvConfig {
   GOOGLE_AI_API_KEY: string;
   LLAMA_API_KEY?: string;
   DEEPSEEK_API_KEY?: string;
-  JWT_SECRET: string;
-  CORS_ORIGIN: string;
   RATE_LIMIT_WINDOW_MS: string;
   RATE_LIMIT_MAX_REQUESTS: string;
-  LOG_LEVEL: string;
 }

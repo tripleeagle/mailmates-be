@@ -4,11 +4,11 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 import express, { Request, Response, Application } from 'express';
-import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
+import corsHandler from './middleware/corsHandler';
 
 // Import logger
 import logger from './config/logger';
@@ -85,35 +85,6 @@ app.use(helmet({
   },
 }));
 
-// CORS configuration
-const corsOptions: CorsOptions = {
-  origin: [
-    'chrome-extension://*',
-    'https://mail.google.com',
-    process.env.FRONTEND_URL || 'http://localhost:3000'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-};
-
-const corsMiddleware = cors(corsOptions);
-
-app.use((req, res, next) => {
-  corsMiddleware(req, res, (err) => {
-    if (err) {
-      logger.error('CORS request failed', {
-        error: err.message,
-        origin: req.headers.origin,
-        method: req.method,
-        path: req.originalUrl
-      });
-      return next(err);
-    }
-    return next();
-  });
-});
-
 // Rate limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // Default: 15 minutes
@@ -124,6 +95,9 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// CORS handling
+app.use('/api', corsHandler);
 
 app.use('/api/', limiter);
 

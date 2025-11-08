@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
+import corsHandler from '../middleware/corsHandler';
 
 // Import logger
 import logger from '../config/logger';
@@ -47,39 +48,7 @@ app.use(helmet({
     },
   },
 }));
-
-// const origins = [
-//   'chrome-extension://*',
-//   'https://mail.google.com',
-//   process.env.FRONTEND_URL || 'http://localhost:3000'
-// ];
-// logger.info('CORS origins: ', origins);
-
-// // CORS configuration
-// const corsOptions: CorsOptions = {
-//   origin: origins,
-//   credentials: true,
-//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-//   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-// };
-
-// const corsMiddleware = cors(corsOptions);
-
-// app.use((req, res, next) => {
-//   corsMiddleware(req, res, (err) => {
-//     if (err) {
-//       logger.error('CORS request failed', {
-//         error: err.message,
-//         origin: req.headers.origin,
-//         method: req.method,
-//         path: req.originalUrl
-//       });
-//       return next(err);
-//     }
-//     return next();
-//   });
-// });
-
+app.use('/api', corsHandler);
 // Rate limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // Default: 15 minutes
