@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import logger from '../config/logger';
 
 const allowedOrigins = [
   'http://localhost:3000',
@@ -14,11 +13,11 @@ const allowedOrigins = [
 const corsHandler = (req: Request, res: Response, next: NextFunction): void => {
   const origin = req.headers.origin;
   const isAllowedOrigin = origin !== undefined && allowedOrigins.includes(origin);
-  logger.error('CORS: ', {
-    origin,
-    isAllowedOrigin,
-    allowedOrigins
-  });
+//   logger.info('CORS: ', {
+//     origin,
+//     isAllowedOrigin,
+//     allowedOrigins
+//   });
 
   if (req.method === 'OPTIONS') {
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -35,7 +34,6 @@ const corsHandler = (req: Request, res: Response, next: NextFunction): void => {
   }
 
   if (req.method === 'OPTIONS') {
-    logger.error('Ending OPTIONS request');
     res.status(200).end();
     return;
   }

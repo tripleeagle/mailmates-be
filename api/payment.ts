@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response, NextFunction, response } from 'express';
 import Stripe from 'stripe';
 import { verifyIdToken, getFirestore } from '../config/firebase';
 import logger from '../config/logger';
@@ -43,7 +43,6 @@ const PRODUCT_IDS = {
   pro_annual: process.env.STRIPE_PRODUCT_ID_PRO_ANNUAL || '',
 };
 
-// Shared checkout session creation logic
 const createCheckoutSessionHandler = async (req: Request, res: Response<ApiResponse<{ sessionId: string; url: string }>>) => {
   try {
     const userId = req.user!.uid;
@@ -174,11 +173,65 @@ const createCheckoutSessionHandler = async (req: Request, res: Response<ApiRespo
   }
 };
 
+// Shared checkout session creation logic
+const checkoutHandler = async (req: Request, res: Response<ApiResponse>) => {
+  try {  
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!endpointSecret) {
+      logger.error('Stripe webhook secret not configured');
+      res.status(500).json({ success: false, error: 'Webhook secret not configured' });
+      return;
+    }
+    
+    let event: Stripe.Event;
+    const signature = req.headers['stripe-signature'];
+    
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        signature,
+        endpointSecret
+      );
+    } catch (err) {
+      logger.log(`⚠️ Webhook signature verification failed.`, err);
+      response.sendStatus(400);
+    }
+
+    switch (event.type) {
+      case 'checkout.session.completed':
+        const paymentIntent = event.data.object;
+        // todo 
+        break;
+      case 'checkout.session.expired':
+        const paymentMethod = event.data.object;
+        
+        break;
+      // ... handle other event types
+      default:
+        console.log(`Unhandled event type ${event.type}`);
+    }
+
+
+    res
+      .status(200)
+      .json({ success: true, message: 'Checkout session created successfully' });
+  } catch (error) {
+    logger.error('Failed to create checkout session', {
+      userId: req.user?.uid || 'unknown',
+      error: (error as Error).message,
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create checkout session',
+    });
+  }
+};
+
 // Create checkout session (original endpoint)
-router.post('/create-checkout-session', authenticateUser, createCheckoutSessionHandler);
+router.post('/create-checkout-session', createCheckoutSessionHandler);
 
 // Stripe checkout endpoint (simpler alias)
-router.post('/checkout', authenticateUser, createCheckoutSessionHandler);
+router.post('/checkout', checkoutHandler);
 
 // Get subscription status
 router.get('/subscription', authenticateUser, async (req: Request, res: Response<ApiResponse<{ subscription: any }>>) => {
