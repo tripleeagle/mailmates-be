@@ -7,7 +7,8 @@ const allowedOrigins = [
   'chrome-extension://*',
   'https://mail.google.com',
   'https://test.mailmates.app',
-  'https://mailmates.app'
+  'https://mailmates.app',
+  'https://www.mailmates.app'
 ];
 
 const corsHandler = (req: Request, res: Response, next: NextFunction): void => {
