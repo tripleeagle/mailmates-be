@@ -371,19 +371,79 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req: R
 
       if (userId && userEmail) {
         try {
+          let subscriptionDetails: Stripe.Subscription | null = null;
+          let nextBillingDate: Date | null = null;
+          let nextPaymentAmount: number | null = null;
+          let nextPaymentCurrency: string | null = null;
+
+          if (session.subscription) {
+            try {
+              subscriptionDetails = await stripe.subscriptions.retrieve(session.subscription as string, {
+                expand: ['items.data.price'],
+              });
+
+              const legacyPeriodEnd = (subscriptionDetails as any).current_period_end;
+              const nestedPeriodEnd = (subscriptionDetails as any).current_period?.end;
+              const periodEndTimestamp = typeof legacyPeriodEnd === 'number'
+                ? legacyPeriodEnd
+                : typeof nestedPeriodEnd === 'number'
+                  ? nestedPeriodEnd
+                  : null;
+
+              if (typeof periodEndTimestamp === 'number') {
+                nextBillingDate = new Date(periodEndTimestamp * 1000);
+              }
+
+              if (subscriptionDetails.items?.data?.length) {
+                nextPaymentAmount = subscriptionDetails.items.data.reduce((total, item) => {
+                  const unitAmount = item.price?.unit_amount ?? 0;
+                  const quantity = item.quantity ?? 1;
+                  return total + unitAmount * quantity;
+                }, 0);
+
+                nextPaymentCurrency = subscriptionDetails.currency
+                  || subscriptionDetails.items.data[0]?.price?.currency
+                  || null;
+              }
+            } catch (subscriptionError) {
+              logger.error('Failed to retrieve subscription details', {
+                userId,
+                subscriptionId: session.subscription,
+                error: (subscriptionError as Error).message,
+              });
+            }
+          }
+
           // Update user subscription in Firestore
           const userQuery = await db.collection('users').where('email', '==', userEmail).limit(1).get();
           
           if (!userQuery.empty) {
             const userRef = userQuery.docs[0].ref;
+            const subscriptionRecord: Record<string, unknown> = {
+              planType,
+              billingPeriod,
+              status: 'active',
+              createdAt: new Date(),
+            };
+
+            subscriptionRecord.stripeSubscriptionId = typeof session.subscription === 'string'
+              ? session.subscription
+              : null;
+
+            if (nextBillingDate) {
+              subscriptionRecord.nextBillingDate = nextBillingDate;
+            }
+
+            if (typeof nextPaymentAmount === 'number') {
+              subscriptionRecord.nextPaymentAmount = nextPaymentAmount;
+            }
+
+            if (nextPaymentCurrency) {
+              subscriptionRecord.nextPaymentCurrency = nextPaymentCurrency;
+            }
+
             await userRef.update({
-              subscription: {
-                stripeSubscriptionId: session.subscription as string,
-                planType,
-                billingPeriod,
-                status: 'active',
-                createdAt: new Date(),
-              },
+              subscription: subscriptionRecord,
               updatedAt: new Date(),
             });
 
