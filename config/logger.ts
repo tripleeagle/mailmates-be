@@ -1,31 +1,56 @@
 import winston from 'winston';
 import { LogContext } from '../types';
 
-// Custom format for console output
-const consoleFormat = winston.format.combine(
+const isVercel = Boolean(process.env.VERCEL);
+const isTestEnv = process.env.NODE_ENV === 'test';
+
+// Custom format for console output (local/dev)
+const localConsoleFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.colorize(),
   winston.format.errors({ stack: true }),
   winston.format.printf(({ timestamp, level, message, stack, ...meta }) => {
     let log = `${timestamp} [${level}]: ${message}`;
-    
-    // Add metadata if present
+
     if (Object.keys(meta).length > 0) {
       log += ` ${JSON.stringify(meta, null, 2)}`;
     }
-    
-    // Add stack trace for errors
+
     if (stack) {
       log += `\n${stack}`;
     }
-    
+
     return log;
   })
 );
 
+// JSON-friendly format for Vercel logging
+const vercelConsoleFormat = winston.format.combine(
+  winston.format.timestamp(),
+  winston.format.errors({ stack: true }),
+  winston.format.printf(({ timestamp, level, message, stack, ...meta }) => {
+    const payload: Record<string, unknown> = {
+      timestamp,
+      level,
+      message,
+    };
+
+    if (stack) {
+      payload.stack = stack;
+    }
+
+    if (Object.keys(meta).length > 0) {
+      payload.meta = meta;
+    }
+
+    return JSON.stringify(payload);
+  })
+);
+
+const consoleFormat = isVercel ? vercelConsoleFormat : localConsoleFormat;
+
 // Create transports - console only
 const transports = [
-  // Console transport
   new winston.transports.Console({
     level: process.env.LOG_LEVEL || 'info',
     format: consoleFormat,
@@ -47,7 +72,14 @@ const logger = winston.createLogger({
 // Create a stream for Morgan HTTP logging
 const stream = {
   write: (message: string) => {
-    logger.http(message.trim());
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    if (isVercel) {
+      logger.info(trimmed);
+    } else {
+      logger.http(trimmed);
+    }
   }
 };
 
@@ -111,15 +143,19 @@ extendedLogger.logPerformance = (operation: string, duration: number, details: L
 };
 
 // Handle uncaught exceptions and unhandled rejections
-if (process.env.NODE_ENV !== 'test') {
+if (!isTestEnv) {
   process.on('uncaughtException', (error: Error) => {
     extendedLogger.error('Uncaught Exception', { error: error.message, stack: error.stack });
-    process.exit(1);
+    if (!isVercel) {
+      process.exit(1);
+    }
   });
 
   process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
     extendedLogger.error('Unhandled Rejection', { reason, promise });
-    process.exit(1);
+    if (!isVercel) {
+      process.exit(1);
+    }
   });
 }
 
