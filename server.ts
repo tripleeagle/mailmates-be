@@ -18,7 +18,7 @@ import generateRoutes from './api/generate';
 import userRoutes from './api/user';
 import usageRoutes from './api/usage';
 import paymentRoutes from './api/payment';
-import { initializeFirebaseWithValidation } from './config/firebase';
+import { initializeFirebase } from './config/firebase';
 import { errorHandler } from './middleware/errorHandler';
 
 const app: Application = express();
@@ -26,6 +26,9 @@ const PORT: string | number = process.env.PORT || 5100;
 
 // Trust proxy for proper rate limiting behind reverse proxies (Vercel, etc.)
 app.set('trust proxy', 1);
+
+// Initialize Firebase with validation
+initializeFirebase();
 
 // Log server startup
 logger.info('Starting AI Email Assistant Backend', {
@@ -35,45 +38,9 @@ logger.info('Starting AI Email Assistant Backend', {
   feUrl: process.env.FRONTEND_URL
 });
 
-// Initialize Firebase with validation
-const initializeApp = async (): Promise<void> => {
-  try {
-    const firebaseApp = await initializeFirebaseWithValidation();
-    
-    if (!firebaseApp) {
-      logger.error('Critical: Firebase initialization failed. Server will start but authentication features will be unavailable.', {
-        error: 'Firebase initialization returned null',
-        impact: 'Authentication and user management features will not work'
-      });
-      
-      // In production, you might want to exit here
-      if (process.env.NODE_ENV === 'production') {
-        logger.error('Exiting due to Firebase initialization failure in production environment');
-        process.exit(1);
-      }
-    } else {
-      logger.info('Firebase initialization successful - all services are ready');
-    }
-  } catch (error) {
-    logger.error('Critical: Firebase initialization threw an exception', {
-      error: (error as Error).message,
-      stack: (error as Error).stack,
-      impact: 'Authentication and user management features will not work'
-    });
-    
-    // In production, exit on Firebase initialization failure
-    if (process.env.NODE_ENV === 'production') {
-      logger.error('Exiting due to Firebase initialization exception in production environment');
-      process.exit(1);
-    }
-  }
-};
 
 // Logging middleware - Morgan handles HTTP request logging
 app.use(morgan('combined', { stream: logger.stream }));
-
-// Initialize Firebase before setting up routes
-initializeApp();
 
 // Security middleware
 app.use(helmet({
@@ -116,7 +83,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Compression middleware
 app.use(compression());
-
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {

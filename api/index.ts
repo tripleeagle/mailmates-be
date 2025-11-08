@@ -36,6 +36,9 @@ logger.info('Starting AI Email Assistant Backend (Vercel)....suka blyad', {
   feUrl: process.env.FRONTEND_URL || 'http://localhost:3000'
 });
 
+// Logging middleware - Morgan handles HTTP request logging
+app.use(morgan('combined', { stream: logger.stream }));
+
 // Security middleware
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
@@ -75,9 +78,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Compression middleware
 app.use(compression());
-
-// Logging middleware - Morgan handles HTTP request logging
-app.use(morgan('combined', { stream: logger.stream }));
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
