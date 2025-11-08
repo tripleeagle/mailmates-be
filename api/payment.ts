@@ -173,9 +173,11 @@ const createCheckoutSessionHandler = async (req: Request, res: Response<ApiRespo
   }
 };
 
+// Create checkout session (original endpoint)
+router.post('/checkout', authenticateUser, createCheckoutSessionHandler);
 
 // Create checkout session (original endpoint)
-router.post('/create-checkout-session', createCheckoutSessionHandler);
+router.post('/create-checkout-session', authenticateUser, createCheckoutSessionHandler);
 
 // Get subscription status
 router.get('/subscription', authenticateUser, async (req: Request, res: Response<ApiResponse<{ subscription: any }>>) => {
