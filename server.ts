@@ -69,6 +69,9 @@ const initializeApp = async (): Promise<void> => {
   }
 };
 
+// Logging middleware - Morgan handles HTTP request logging
+app.use(morgan('combined', { stream: logger.stream }));
+
 // Initialize Firebase before setting up routes
 initializeApp();
 
@@ -97,7 +100,7 @@ const limiter = rateLimit({
 });
 console.error('suuuuka blyad server.ts')
 // CORS handling
-app.use('/api', corsHandler);
+app.use('/api/', corsHandler);
 
 app.use('/api/', limiter);
 
@@ -114,8 +117,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Compression middleware
 app.use(compression());
 
-// Logging middleware - Morgan handles HTTP request logging
-app.use(morgan('combined', { stream: logger.stream }));
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
