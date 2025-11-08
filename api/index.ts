@@ -48,6 +48,9 @@ app.use(helmet({
     },
   },
 }));
+
+console.error('suuuuka blyad index.ts')
+
 app.use(corsHandler);
 // Rate limiting
 const limiter = rateLimit({
