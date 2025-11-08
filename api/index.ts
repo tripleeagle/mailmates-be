@@ -30,7 +30,7 @@ app.set('trust proxy', 1);
 initializeFirebase();
 
 // Log server startup
-logger.info('Starting AI Email Assistant Backend (Vercel)', {
+logger.info('Starting AI Email Assistant Backend (Vercel)....suka blyad', {
   environment: process.env.NODE_ENV || 'production',
   version: process.env.npm_package_version || '1.0.0',
   feUrl: process.env.FRONTEND_URL || 'http://localhost:3000'
