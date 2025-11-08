@@ -43,6 +43,65 @@ const PRODUCT_IDS = {
   pro_annual: process.env.STRIPE_PRODUCT_ID_PRO_ANNUAL || '',
 };
 
+type SubscriptionSummary = {
+  id: string;
+  status: Stripe.Subscription.Status;
+  created: Date;
+  planType: string;
+  billingPeriod: string;
+  nextBillingDate: Date | null;
+  nextPaymentAmount: number | null;
+  nextPaymentCurrency: string | null;
+};
+
+const retrieveUpcomingInvoice = async (subscriptionId: string): Promise<Stripe.Invoice | null> => {
+  try {
+    return await stripe.invoices.createPreview({
+      subscription: subscriptionId,
+    });
+  } catch (error) {
+    const errorWithCode = error as { code?: string; message?: string };
+
+    if (errorWithCode?.code === 'invoice_upcoming_none') {
+      logger.info('No upcoming invoice for subscription', { subscriptionId });
+      return null;
+    }
+
+    logger.error('Failed to retrieve upcoming invoice', {
+      subscriptionId,
+      error: (error as Error).message,
+      code: errorWithCode?.code,
+    });
+    return null;
+  }
+};
+
+const getSubscriptionDetails = async (subscriptionId: string): Promise<SubscriptionSummary | null> => {
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+      expand: ['items.data.price'],
+    });
+    const upcomingInvoice = await retrieveUpcomingInvoice(subscription.id);
+    
+    return {
+      id: subscription.id,
+      status: subscription.status,
+      created: new Date(subscription.created * 1000),
+      planType: subscription.metadata?.planType || 'unknown',
+      billingPeriod: subscription.metadata?.billingPeriod || 'unknown',
+      nextBillingDate: upcomingInvoice?.period_end ? new Date(upcomingInvoice.period_end * 1000) : null,
+      nextPaymentAmount: upcomingInvoice?.amount_due || null,
+      nextPaymentCurrency: upcomingInvoice?.currency || null,
+    }
+  } catch (error) {
+    logger.error('Failed to retrieve subscription details', {
+      subscriptionId,
+      error: (error as Error).message,
+    });
+    return null;
+  }
+};
+
 const createCheckoutSessionHandler = async (req: Request, res: Response<ApiResponse<{ sessionId: string; url: string }>>) => {
   try {
     const userId = req.user!.uid;
@@ -230,18 +289,28 @@ router.get('/subscription', authenticateUser, async (req: Request, res: Response
 
     const subscription = subscriptions.data[0];
 
-    // Retrieve full subscription details to get all properties
-    const fullSubscription = await stripe.subscriptions.retrieve(subscription.id);
+    const subscriptionSummary = await getSubscriptionDetails(subscription.id);
+
+    if (!subscriptionSummary) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to retrieve subscription details',
+      });
+      return;
+    }
 
     res.json({
       success: true,
       data: {
         subscription: {
-          id: fullSubscription.id,
-          status: fullSubscription.status,
-          current_period_end: (fullSubscription as any).current_period_end,
-          planType: fullSubscription.metadata?.planType || 'unknown',
-          billingPeriod: fullSubscription.metadata?.billingPeriod || 'unknown',
+          id: subscriptionSummary.id,
+          status: subscriptionSummary.status,
+          created: subscriptionSummary.created,
+          planType: subscriptionSummary.planType,
+          billingPeriod: subscriptionSummary.billingPeriod,
+          nextBillingDate: subscriptionSummary.nextBillingDate,
+          nextPaymentAmount: subscriptionSummary.nextPaymentAmount,
+          nextPaymentCurrency: subscriptionSummary.nextPaymentCurrency
         },
       },
     });
@@ -371,47 +440,15 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req: R
 
       if (userId && userEmail) {
         try {
-          let subscriptionDetails: Stripe.Subscription | null = null;
-          let nextBillingDate: Date | null = null;
-          let nextPaymentAmount: number | null = null;
-          let nextPaymentCurrency: string | null = null;
+          let subscriptionSummary: SubscriptionSummary | null = null;
+          const subscriptionId = typeof session.subscription === 'string'
+            ? session.subscription
+            : typeof (session.subscription as Stripe.Subscription | undefined)?.id === 'string'
+              ? (session.subscription as Stripe.Subscription).id
+              : null;
 
-          if (session.subscription) {
-            try {
-              subscriptionDetails = await stripe.subscriptions.retrieve(session.subscription as string, {
-                expand: ['items.data.price'],
-              });
-
-              const legacyPeriodEnd = (subscriptionDetails as any).current_period_end;
-              const nestedPeriodEnd = (subscriptionDetails as any).current_period?.end;
-              const periodEndTimestamp = typeof legacyPeriodEnd === 'number'
-                ? legacyPeriodEnd
-                : typeof nestedPeriodEnd === 'number'
-                  ? nestedPeriodEnd
-                  : null;
-
-              if (typeof periodEndTimestamp === 'number') {
-                nextBillingDate = new Date(periodEndTimestamp * 1000);
-              }
-
-              if (subscriptionDetails.items?.data?.length) {
-                nextPaymentAmount = subscriptionDetails.items.data.reduce((total, item) => {
-                  const unitAmount = item.price?.unit_amount ?? 0;
-                  const quantity = item.quantity ?? 1;
-                  return total + unitAmount * quantity;
-                }, 0);
-
-                nextPaymentCurrency = subscriptionDetails.currency
-                  || subscriptionDetails.items.data[0]?.price?.currency
-                  || null;
-              }
-            } catch (subscriptionError) {
-              logger.error('Failed to retrieve subscription details', {
-                userId,
-                subscriptionId: session.subscription,
-                error: (subscriptionError as Error).message,
-              });
-            }
+          if (subscriptionId) {
+            subscriptionSummary = await getSubscriptionDetails(subscriptionId);
           }
 
           // Update user subscription in Firestore
@@ -419,31 +456,9 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req: R
           
           if (!userQuery.empty) {
             const userRef = userQuery.docs[0].ref;
-            const subscriptionRecord: Record<string, unknown> = {
-              planType,
-              billingPeriod,
-              status: 'active',
-              createdAt: new Date(),
-            };
-
-            subscriptionRecord.stripeSubscriptionId = typeof session.subscription === 'string'
-              ? session.subscription
-              : null;
-
-            if (nextBillingDate) {
-              subscriptionRecord.nextBillingDate = nextBillingDate;
-            }
-
-            if (typeof nextPaymentAmount === 'number') {
-              subscriptionRecord.nextPaymentAmount = nextPaymentAmount;
-            }
-
-            if (nextPaymentCurrency) {
-              subscriptionRecord.nextPaymentCurrency = nextPaymentCurrency;
-            }
-
+            
             await userRef.update({
-              subscription: subscriptionRecord,
+              subscription: subscriptionSummary,
               updatedAt: new Date(),
             });
 
