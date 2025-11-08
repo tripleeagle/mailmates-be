@@ -49,9 +49,6 @@ app.use(helmet({
   },
 }));
 
-console.error('suuuuka blyad index.ts')
-
-app.use(corsHandler);
 // Rate limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // Default: 15 minutes
@@ -63,6 +60,7 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 
+app.use('/api/', corsHandler);
 app.use('/api/', limiter);
 
 // Body parsing middleware (exclude webhook routes that need raw body)

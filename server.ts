@@ -98,7 +98,7 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-console.error('suuuuka blyad server.ts')
+
 // CORS handling
 app.use('/api/', corsHandler);
 
