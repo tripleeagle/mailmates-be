@@ -1,3 +1,5 @@
+import type { Firestore } from 'firebase-admin/firestore';
+
 import { initializeFirebase, getFirestore } from '../config/firebase';
 import logger from '../config/logger';
 
@@ -92,7 +94,8 @@ const ADVANCED_MODELS = new Set([
   'deepseek',
 ]);
 
-const USAGE_COLLECTION = 'usage_counters';
+const USERS_COLLECTION = 'users';
+const USAGE_SUBCOLLECTION = 'usageRecords';
 
 const getDb = () => {
   initializeFirebase();
@@ -164,28 +167,19 @@ const buildCounterSkeleton = (userId: string, planType: PlanType, now: Date): Us
   };
 };
 
-const ensurePeriod = (counter: UsageCounterDoc, now: Date): UsageCounterDoc => {
-  const currentPeriod = formatPeriodKey(now);
-  if (counter.periodKey === currentPeriod) {
-    return counter;
-  }
-
-  return {
-    ...counter,
-    periodKey: currentPeriod,
-    basicCount: 0,
-    advancedCount: 0,
-    updatedAt: now,
-    lastResetAt: now,
-    lastResetReason: 'monthly',
-  };
-};
-
 const computeRemaining = (limit: number | null, usage: number): number | null => {
   if (limit === null) {
     return null;
   }
   return Math.max(limit - usage, 0);
+};
+
+const getUsageDocRef = (db: Firestore, userId: string, periodKey: string) => {
+  return db
+    .collection(USERS_COLLECTION)
+    .doc(userId)
+    .collection(USAGE_SUBCOLLECTION)
+    .doc(periodKey);
 };
 
 const usageTrackerService = {
@@ -195,18 +189,31 @@ const usageTrackerService = {
   async consumeUsage(userId: string, plan: PlanType, model: string, requestedAt: Date): Promise<UsageConsumptionResult> {
     const tier = resolveUsageTier(model);
     const db = getDb();
-    const docRef = db.collection(USAGE_COLLECTION).doc(userId);
+    const now = requestedAt;
+    const periodKey = formatPeriodKey(now);
+    const docRef = getUsageDocRef(db, userId, periodKey);
 
     return db.runTransaction<UsageConsumptionResult>(async (tx) => {
       const docSnap = await tx.get(docRef);
-      const now = requestedAt;
 
-      let counter: UsageCounterDoc = docSnap.exists
-        ? (docSnap.data() as UsageCounterDoc)
-        : buildCounterSkeleton(userId, plan, now);
+      let counter: UsageCounterDoc;
 
-      counter = ensurePeriod(counter, now);
-      counter.planType = plan;
+      if (docSnap.exists) {
+        const data = docSnap.data() as UsageCounterDoc;
+        counter = {
+          ...data,
+          periodKey,
+          userId,
+          planType: plan,
+          updatedAt: normalizeDate((data as any).updatedAt, now),
+          lastResetAt: normalizeDate((data as any).lastResetAt, now),
+        };
+      } else {
+        counter = {
+          ...buildCounterSkeleton(userId, plan, now),
+          periodKey,
+        };
+      }
 
       const planLimits = PLAN_LIMITS[plan];
       const limit = planLimits[tier];
@@ -259,7 +266,8 @@ const usageTrackerService = {
   async rollbackUsage(userId: string, model: string, occurredAt: Date): Promise<void> {
     const tier = resolveUsageTier(model);
     const db = getDb();
-    const docRef = db.collection(USAGE_COLLECTION).doc(userId);
+    const periodKey = formatPeriodKey(occurredAt);
+    const docRef = getUsageDocRef(db, userId, periodKey);
 
     await db.runTransaction(async (tx) => {
       const docSnap = await tx.get(docRef);
@@ -267,8 +275,14 @@ const usageTrackerService = {
         return;
       }
 
-      let counter = docSnap.data() as UsageCounterDoc;
-      counter = ensurePeriod(counter, occurredAt);
+      const data = docSnap.data() as UsageCounterDoc;
+      const counter: UsageCounterDoc = {
+        ...data,
+        periodKey,
+        userId,
+        updatedAt: normalizeDate((data as any).updatedAt, occurredAt),
+        lastResetAt: normalizeDate((data as any).lastResetAt, occurredAt),
+      };
 
       if (tier === 'basic' && counter.basicCount > 0) {
         counter.basicCount -= 1;
@@ -285,9 +299,11 @@ const usageTrackerService = {
 
   async resetUsage(userId: string, plan: PlanType, reason: 'monthly' | 'subscription', resetDate: Date = new Date()): Promise<void> {
     const db = getDb();
-    const docRef = db.collection(USAGE_COLLECTION).doc(userId);
-    const counter = {
+    const periodKey = formatPeriodKey(resetDate);
+    const docRef = getUsageDocRef(db, userId, periodKey);
+    const counter: UsageCounterDoc = {
       ...buildCounterSkeleton(userId, plan, resetDate),
+      periodKey,
       lastResetReason: reason,
       lastResetAt: resetDate,
     };
@@ -299,7 +315,8 @@ const usageTrackerService = {
 
   async getUsageSummary(userId: string, plan: PlanType, asOf: Date = new Date()): Promise<UsageSummary> {
     const db = getDb();
-    const docRef = db.collection(USAGE_COLLECTION).doc(userId);
+    const periodKey = formatPeriodKey(asOf);
+    const docRef = getUsageDocRef(db, userId, periodKey);
     const docSnap = await docRef.get();
     const now = asOf;
 
@@ -309,13 +326,14 @@ const usageTrackerService = {
       const data = docSnap.data() as UsageCounterDoc;
       counter = {
         ...data,
+        periodKey,
         planType: plan,
         updatedAt: normalizeDate((data as any).updatedAt, now),
         lastResetAt: normalizeDate((data as any).lastResetAt, now),
       };
-      counter = ensurePeriod(counter, now);
     } else {
       counter = buildCounterSkeleton(userId, plan, now);
+      counter.periodKey = periodKey;
     }
 
     const limits = PLAN_LIMITS[plan];
