@@ -58,18 +58,7 @@ export function createApp(options: CreateAppOptions = {}): Application {
     },
   }));
 
-  const limiter = rateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '500', 10),
-    message: {
-      error: 'Too many requests from this IP, please try again later.',
-    },
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-
   app.use('/api/', corsHandler);
-  app.use('/api/', limiter);
 
   app.use((req, res, next) => {
     if (req.path === '/api/payment/webhook') {
