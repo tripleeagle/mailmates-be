@@ -6,8 +6,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node server.ts",
-    "dev:watch": "nodemon --exec ts-node server.ts",
+    "dev:regular": "ts-node server.ts",
+    "dev": "nodemon --exec ts-node server.ts",
     "test": "jest",
     "test:firebase": "ts-node scripts/test-firebase.ts",
     "type-check": "tsc --noEmit"

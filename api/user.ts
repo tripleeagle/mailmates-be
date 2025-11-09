@@ -51,6 +51,11 @@ const updateSettingsSchema = Joi.object({
   }).required()
 });
 
+const updateProfileSchema = Joi.object({
+  firstName: Joi.string().trim().max(100).allow('', null),
+  lastName: Joi.string().trim().max(100).allow('', null)
+}).or('firstName', 'lastName');
+
 // Get user settings
 router.get('/settings', authenticateUser, async (req: Request, res: Response<ApiResponse<{ settings: UserSettings }>>) => {
   try {
@@ -189,16 +194,29 @@ router.put('/settings', authenticateUser, async (req: Request<{}, ApiResponse<{ 
 // Get user profile
 router.get('/profile', authenticateUser, async (req: Request, res: Response<ApiResponse<{ user: User }>>) => {
   try {
-    const user = req.user!;
-    
+    const decodedUser = req.user!;
+    const userEmail = decodedUser.email;
+
+    if (!userEmail) {
+      logger.warn('User email not available when fetching profile', { userId: decodedUser.uid });
+      return res.status(400).json({
+        success: false,
+        error: 'User email not available. Please log in again.'
+      });
+    }
+
+    const storedUser = await userService.getUserByEmail(userEmail);
+
     res.json({
       success: true,
       data: {
         user: {
-          uid: user.uid,
-          email: user.email,
-          name: user.name,
-          picture: user.picture
+          uid: decodedUser.uid,
+          email: storedUser?.email ?? decodedUser.email,
+          name: storedUser?.name ?? decodedUser.name,
+          firstName: storedUser?.firstName ?? null,
+          lastName: storedUser?.lastName ?? null,
+          picture: storedUser?.picture ?? decodedUser.picture
         }
       }
     });
@@ -210,6 +228,85 @@ router.get('/profile', authenticateUser, async (req: Request, res: Response<ApiR
     res.status(500).json({
       success: false,
       error: 'Failed to retrieve user profile'
+    });
+  }
+});
+
+// Update user profile
+router.put('/profile', authenticateUser, async (req: Request, res: Response<ApiResponse<{ user: User }>>) => {
+  try {
+    const { error, value } = updateProfileSchema.validate(req.body, {
+      abortEarly: false,
+      allowUnknown: false
+    });
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error',
+        message: error.details.map((d) => d.message).join(', ')
+      });
+    }
+
+    const userId = req.user!.uid;
+    const userEmail = req.user!.email;
+
+    if (!userEmail) {
+      logger.warn('User email not available in token', { userId });
+      return res.status(400).json({
+        success: false,
+        error: 'User email not available. Please log in again.'
+      });
+    }
+
+    const rawFirstName = value.firstName as string | undefined | null;
+    const rawLastName = value.lastName as string | undefined | null;
+
+    const trimmedFirstName = rawFirstName !== undefined && rawFirstName !== null ? rawFirstName.trim() : undefined;
+    const trimmedLastName = rawLastName !== undefined && rawLastName !== null ? rawLastName.trim() : undefined;
+
+    const composedName = [trimmedFirstName, trimmedLastName].filter(Boolean).join(' ').trim();
+
+    if (!composedName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error',
+        message: 'Name cannot be empty.'
+      });
+    }
+
+    const updatedUser = await userService.updateUserProfileByEmail(userEmail, {
+      firstName: trimmedFirstName ?? null,
+      lastName: trimmedLastName ?? null,
+      name: composedName
+    });
+
+    logger.info('User profile updated via API', {
+      userId,
+      email: userEmail
+    });
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          uid: updatedUser.uid,
+          email: updatedUser.email,
+          name: updatedUser.name,
+          firstName: updatedUser.firstName,
+          lastName: updatedUser.lastName,
+          picture: updatedUser.picture
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to update user profile', {
+      userId: req.user?.uid || 'unknown',
+      error: (error as Error).message
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update profile'
     });
   }
 });

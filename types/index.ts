@@ -15,6 +15,8 @@ export interface User {
   uid: string;
   email?: string;
   name?: string;
+  firstName?: string | null;
+  lastName?: string | null;
   picture?: string;
 }
 

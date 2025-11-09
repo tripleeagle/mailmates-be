@@ -7,6 +7,8 @@ export interface StoredUser extends AISettings {
   uid: string;
   email?: string;
   name?: string;
+  firstName?: string | null;
+  lastName?: string | null;
   picture?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -35,6 +37,10 @@ class UserService {
 
       const email = decodedToken.email;
       const userId = decodedToken.uid;
+      const nameFromToken = (decodedToken.name || '').trim();
+      const nameParts = nameFromToken ? nameFromToken.split(/\s+/) : [];
+      const [tokenFirstName, ...tokenLastParts] = nameParts;
+      const tokenLastName = tokenLastParts.length > 0 ? tokenLastParts.join(' ') : undefined;
       
       // Query for existing user by email
       const userQuery = await this.db.collection('users').where('email', '==', email).limit(1).get();
@@ -50,6 +56,8 @@ class UserService {
           ...existingData,
           uid: userId, // Update UID in case it changed
           name: decodedToken.name || existingData.name,
+          firstName: existingData.firstName ?? tokenFirstName,
+          lastName: existingData.lastName ?? tokenLastName,
           picture: decodedToken.picture || existingData.picture,
           updatedAt: now,
           lastLoginAt: now
@@ -63,6 +71,8 @@ class UserService {
           uid: userId,
           email: email,
           name: decodedToken.name,
+          firstName: tokenFirstName,
+          lastName: tokenLastName,
           picture: decodedToken.picture,
           language: 'auto',
           tone: 'auto',
@@ -215,6 +225,97 @@ class UserService {
         error: (error as Error).message
       });
       return false;
+    }
+  }
+
+  /**
+   * Update user profile information by email.
+   */
+  async updateUserProfileByEmail(
+    email: string,
+    updates: {
+      firstName?: string | null;
+      lastName?: string | null;
+      name?: string | null;
+      picture?: string | null;
+    }
+  ): Promise<StoredUser> {
+    try {
+      const userQuery = await this.db.collection('users').where('email', '==', email).limit(1).get();
+
+      if (userQuery.empty) {
+        throw new Error('User not found');
+      }
+
+      const docRef = userQuery.docs[0].ref;
+      const existingData = userQuery.docs[0].data() as StoredUser;
+
+      const now = new Date();
+
+      const sanitizedUpdates: Partial<StoredUser> = {
+        updatedAt: now
+      };
+
+      if (updates.firstName !== undefined) {
+        if (updates.firstName === null) {
+          sanitizedUpdates.firstName = null;
+        } else {
+          const normalizedFirst = updates.firstName.trim();
+          sanitizedUpdates.firstName = normalizedFirst.length ? normalizedFirst : null;
+        }
+      }
+
+      if (updates.lastName !== undefined) {
+        if (updates.lastName === null) {
+          sanitizedUpdates.lastName = null;
+        } else {
+          const normalizedLast = updates.lastName.trim();
+          sanitizedUpdates.lastName = normalizedLast.length ? normalizedLast : null;
+        }
+      }
+
+      if (updates.picture !== undefined) {
+        if (updates.picture === null) {
+          sanitizedUpdates.picture = undefined;
+        } else {
+          const normalizedPicture = updates.picture.trim();
+          sanitizedUpdates.picture = normalizedPicture.length ? normalizedPicture : undefined;
+        }
+      }
+
+      if (updates.name !== undefined) {
+        if (updates.name === null) {
+          sanitizedUpdates.name = existingData.name;
+        } else {
+          const normalizedName = updates.name.trim();
+          sanitizedUpdates.name = normalizedName.length ? normalizedName : existingData.name;
+        }
+      } else {
+        const fallbackFirst = sanitizedUpdates.firstName ?? existingData.firstName;
+        const fallbackLast = sanitizedUpdates.lastName ?? existingData.lastName;
+        const recomposedName = [fallbackFirst, fallbackLast].filter(Boolean).join(' ').trim();
+        sanitizedUpdates.name = recomposedName || existingData.name;
+      }
+
+      await docRef.set(sanitizedUpdates, { merge: true });
+
+      const updatedUser: StoredUser = {
+        ...existingData,
+        ...sanitizedUpdates
+      };
+
+      logger.info('User profile updated', {
+        email,
+        updatedFields: Object.keys(sanitizedUpdates).filter((field) => field !== 'updatedAt')
+      });
+
+      return updatedUser;
+    } catch (error) {
+      logger.error('Failed to update user profile', {
+        email,
+        error: (error as Error).message
+      });
+      throw new Error('Failed to update user profile');
     }
   }
 }
