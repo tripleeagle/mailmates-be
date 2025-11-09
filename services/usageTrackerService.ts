@@ -1,5 +1,3 @@
-import type { Firestore } from 'firebase-admin/firestore';
-
 import { initializeFirebase, getFirestore } from '../config/firebase';
 import logger from '../config/logger';
 
@@ -174,14 +172,6 @@ const computeRemaining = (limit: number | null, usage: number): number | null =>
   return Math.max(limit - usage, 0);
 };
 
-const getUsageDocRef = (db: Firestore, userId: string, periodKey: string) => {
-  return db
-    .collection(USERS_COLLECTION)
-    .doc(userId)
-    .collection(USAGE_SUBCOLLECTION)
-    .doc(periodKey);
-};
-
 const usageTrackerService = {
   resolvePlanType,
   resolveUsageTier,
@@ -191,22 +181,26 @@ const usageTrackerService = {
     const db = getDb();
     const now = requestedAt;
     const periodKey = formatPeriodKey(now);
-    const docRef = getUsageDocRef(db, userId, periodKey);
+    const userDocRef = db.collection(USERS_COLLECTION).doc(userId);
+    const usageCollectionRef = userDocRef.collection(USAGE_SUBCOLLECTION);
 
     return db.runTransaction<UsageConsumptionResult>(async (tx) => {
-      const docSnap = await tx.get(docRef);
+      const query = usageCollectionRef.where('periodKey', '==', periodKey).limit(1);
+      const querySnap = await tx.get(query);
+
+      const docRef = querySnap.empty ? usageCollectionRef.doc(periodKey) : querySnap.docs[0].ref;
+      const docData = querySnap.empty ? null : (querySnap.docs[0].data() as UsageCounterDoc);
 
       let counter: UsageCounterDoc;
 
-      if (docSnap.exists) {
-        const data = docSnap.data() as UsageCounterDoc;
+      if (docData) {
         counter = {
-          ...data,
+          ...docData,
           periodKey,
           userId,
           planType: plan,
-          updatedAt: normalizeDate((data as any).updatedAt, now),
-          lastResetAt: normalizeDate((data as any).lastResetAt, now),
+          updatedAt: normalizeDate((docData as any).updatedAt, now),
+          lastResetAt: normalizeDate((docData as any).lastResetAt, now),
         };
       } else {
         counter = {
@@ -267,15 +261,18 @@ const usageTrackerService = {
     const tier = resolveUsageTier(model);
     const db = getDb();
     const periodKey = formatPeriodKey(occurredAt);
-    const docRef = getUsageDocRef(db, userId, periodKey);
+    const userDocRef = db.collection(USERS_COLLECTION).doc(userId);
+    const usageCollectionRef = userDocRef.collection(USAGE_SUBCOLLECTION);
 
     await db.runTransaction(async (tx) => {
-      const docSnap = await tx.get(docRef);
-      if (!docSnap.exists) {
+      const query = usageCollectionRef.where('periodKey', '==', periodKey).limit(1);
+      const querySnap = await tx.get(query);
+      if (querySnap.empty) {
         return;
       }
 
-      const data = docSnap.data() as UsageCounterDoc;
+      const doc = querySnap.docs[0];
+      const data = doc.data() as UsageCounterDoc;
       const counter: UsageCounterDoc = {
         ...data,
         periodKey,
@@ -293,14 +290,15 @@ const usageTrackerService = {
       }
 
       counter.updatedAt = new Date();
-      tx.set(docRef, counter, { merge: true });
+      tx.set(doc.ref, counter, { merge: true });
     });
   },
 
   async resetUsage(userId: string, plan: PlanType, reason: 'monthly' | 'subscription', resetDate: Date = new Date()): Promise<void> {
     const db = getDb();
     const periodKey = formatPeriodKey(resetDate);
-    const docRef = getUsageDocRef(db, userId, periodKey);
+    const userDocRef = db.collection(USERS_COLLECTION).doc(userId);
+    const usageCollectionRef = userDocRef.collection(USAGE_SUBCOLLECTION);
     const counter: UsageCounterDoc = {
       ...buildCounterSkeleton(userId, plan, resetDate),
       periodKey,
@@ -308,7 +306,7 @@ const usageTrackerService = {
       lastResetAt: resetDate,
     };
 
-    await docRef.set(counter, { merge: true });
+    await usageCollectionRef.doc(periodKey).set(counter, { merge: true });
 
     logger.info('Usage counters reset', { userId, plan, reason });
   },
@@ -316,14 +314,15 @@ const usageTrackerService = {
   async getUsageSummary(userId: string, plan: PlanType, asOf: Date = new Date()): Promise<UsageSummary> {
     const db = getDb();
     const periodKey = formatPeriodKey(asOf);
-    const docRef = getUsageDocRef(db, userId, periodKey);
-    const docSnap = await docRef.get();
+    const userDocRef = db.collection(USERS_COLLECTION).doc(userId);
+    const usageCollectionRef = userDocRef.collection(USAGE_SUBCOLLECTION);
+    const querySnap = await usageCollectionRef.where('periodKey', '==', periodKey).limit(1).get();
     const now = asOf;
 
     let counter: UsageCounterDoc;
 
-    if (docSnap.exists) {
-      const data = docSnap.data() as UsageCounterDoc;
+    if (!querySnap.empty) {
+      const data = querySnap.docs[0].data() as UsageCounterDoc;
       counter = {
         ...data,
         periodKey,
