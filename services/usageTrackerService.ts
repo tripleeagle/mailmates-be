@@ -93,7 +93,6 @@ const ADVANCED_MODELS = new Set([
 ]);
 
 const USERS_COLLECTION = 'users';
-const USAGE_SUBCOLLECTION = 'usageRecords';
 
 const getDb = () => {
   initializeFirebase();
@@ -172,6 +171,57 @@ const computeRemaining = (limit: number | null, usage: number): number | null =>
   return Math.max(limit - usage, 0);
 };
 
+const coercePlanType = (value: any, fallback: PlanType): PlanType => {
+  if (value === 'free' || value === 'pro' || value === 'unlimited') {
+    return value;
+  }
+  return fallback;
+};
+
+const deserializeUsageRecords = (
+  records: any,
+  userId: string,
+  fallbackPlan: PlanType,
+  now: Date
+): UsageCounterDoc[] => {
+  if (!Array.isArray(records)) {
+    return [];
+  }
+
+  return records.map((record) => {
+    const periodKey = typeof record.periodKey === 'string' ? record.periodKey : formatPeriodKey(now);
+    const planType = coercePlanType(record.planType, fallbackPlan);
+
+    return {
+      userId: typeof record.userId === 'string' ? record.userId : userId,
+      periodKey,
+      planType,
+      basicCount: typeof record.basicCount === 'number' ? record.basicCount : 0,
+      advancedCount: typeof record.advancedCount === 'number' ? record.advancedCount : 0,
+      updatedAt: normalizeDate(record.updatedAt, now),
+      lastResetAt: normalizeDate(record.lastResetAt, now),
+      lastResetReason: record.lastResetReason,
+    };
+  });
+};
+
+const serializeUsageRecords = (records: UsageCounterDoc[]): UsageCounterDoc[] => {
+  return records.map((record) => ({
+    userId: record.userId,
+    periodKey: record.periodKey,
+    planType: record.planType,
+    basicCount: record.basicCount,
+    advancedCount: record.advancedCount,
+    updatedAt: record.updatedAt,
+    lastResetAt: record.lastResetAt,
+    lastResetReason: record.lastResetReason,
+  }));
+};
+
+const getUserQuery = (db: FirebaseFirestore.Firestore, userId: string) => {
+  return db.collection(USERS_COLLECTION).where('uid', '==', userId).limit(1);
+};
+
 const usageTrackerService = {
   resolvePlanType,
   resolveUsageTier,
@@ -181,33 +231,33 @@ const usageTrackerService = {
     const db = getDb();
     const now = requestedAt;
     const periodKey = formatPeriodKey(now);
-    const userDocRef = db.collection(USERS_COLLECTION).doc(userId);
-    const usageCollectionRef = userDocRef.collection(USAGE_SUBCOLLECTION);
+    const userQuery = getUserQuery(db, userId);
 
     return db.runTransaction<UsageConsumptionResult>(async (tx) => {
-      const query = usageCollectionRef.where('periodKey', '==', periodKey).limit(1);
-      const querySnap = await tx.get(query);
-
-      const docRef = querySnap.empty ? usageCollectionRef.doc(periodKey) : querySnap.docs[0].ref;
-      const docData = querySnap.empty ? null : (querySnap.docs[0].data() as UsageCounterDoc);
-
-      let counter: UsageCounterDoc;
-
-      if (docData) {
-        counter = {
-          ...docData,
-          periodKey,
-          userId,
-          planType: plan,
-          updatedAt: normalizeDate((docData as any).updatedAt, now),
-          lastResetAt: normalizeDate((docData as any).lastResetAt, now),
-        };
-      } else {
-        counter = {
-          ...buildCounterSkeleton(userId, plan, now),
-          periodKey,
-        };
+      const userSnap = await tx.get(userQuery);
+      if (userSnap.empty) {
+        throw new Error(`User document not found for uid ${userId}`);
       }
+
+      const userDoc = userSnap.docs[0];
+      const userData = userDoc.data() || {};
+
+      const usageRecords = deserializeUsageRecords(userData.usage, userId, plan, now);
+      const existingIndex = usageRecords.findIndex((record) => record.periodKey === periodKey);
+
+      const counter =
+        existingIndex >= 0
+          ? {
+              ...usageRecords[existingIndex],
+              periodKey,
+              userId,
+              planType: plan,
+              updatedAt: now,
+            }
+          : {
+              ...buildCounterSkeleton(userId, plan, now),
+              periodKey,
+            };
 
       const planLimits = PLAN_LIMITS[plan];
       const limit = planLimits[tier];
@@ -240,7 +290,13 @@ const usageTrackerService = {
 
       counter.updatedAt = now;
 
-      tx.set(docRef, counter, { merge: true });
+      if (existingIndex >= 0) {
+        usageRecords[existingIndex] = counter;
+      } else {
+        usageRecords.push(counter);
+      }
+
+      tx.set(userDoc.ref, { usage: serializeUsageRecords(usageRecords) }, { merge: true });
 
       return {
         allowed: true,
@@ -261,24 +317,26 @@ const usageTrackerService = {
     const tier = resolveUsageTier(model);
     const db = getDb();
     const periodKey = formatPeriodKey(occurredAt);
-    const userDocRef = db.collection(USERS_COLLECTION).doc(userId);
-    const usageCollectionRef = userDocRef.collection(USAGE_SUBCOLLECTION);
+    const userQuery = getUserQuery(db, userId);
 
     await db.runTransaction(async (tx) => {
-      const query = usageCollectionRef.where('periodKey', '==', periodKey).limit(1);
-      const querySnap = await tx.get(query);
-      if (querySnap.empty) {
+      const userSnap = await tx.get(userQuery);
+      if (userSnap.empty) {
         return;
       }
 
-      const doc = querySnap.docs[0];
-      const data = doc.data() as UsageCounterDoc;
+      const userDoc = userSnap.docs[0];
+      const usageRecords = deserializeUsageRecords(userDoc.data()?.usage, userId, 'free', occurredAt);
+      const existingIndex = usageRecords.findIndex((record) => record.periodKey === periodKey);
+
+      if (existingIndex < 0) {
+        return;
+      }
+
       const counter: UsageCounterDoc = {
-        ...data,
+        ...usageRecords[existingIndex],
         periodKey,
         userId,
-        updatedAt: normalizeDate((data as any).updatedAt, occurredAt),
-        lastResetAt: normalizeDate((data as any).lastResetAt, occurredAt),
       };
 
       if (tier === 'basic' && counter.basicCount > 0) {
@@ -290,23 +348,41 @@ const usageTrackerService = {
       }
 
       counter.updatedAt = new Date();
-      tx.set(doc.ref, counter, { merge: true });
+      usageRecords[existingIndex] = counter;
+
+      tx.set(userDoc.ref, { usage: serializeUsageRecords(usageRecords) }, { merge: true });
     });
   },
 
   async resetUsage(userId: string, plan: PlanType, reason: 'monthly' | 'subscription', resetDate: Date = new Date()): Promise<void> {
     const db = getDb();
     const periodKey = formatPeriodKey(resetDate);
-    const userDocRef = db.collection(USERS_COLLECTION).doc(userId);
-    const usageCollectionRef = userDocRef.collection(USAGE_SUBCOLLECTION);
-    const counter: UsageCounterDoc = {
-      ...buildCounterSkeleton(userId, plan, resetDate),
-      periodKey,
-      lastResetReason: reason,
-      lastResetAt: resetDate,
-    };
+    const userQuery = getUserQuery(db, userId);
 
-    await usageCollectionRef.doc(periodKey).set(counter, { merge: true });
+    await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userQuery);
+      if (userSnap.empty) {
+        throw new Error(`User document not found for uid ${userId}`);
+      }
+
+      const userDoc = userSnap.docs[0];
+      const usageRecords = deserializeUsageRecords(userDoc.data()?.usage, userId, plan, resetDate);
+      const counter: UsageCounterDoc = {
+        ...buildCounterSkeleton(userId, plan, resetDate),
+        periodKey,
+        lastResetReason: reason,
+        lastResetAt: resetDate,
+      };
+
+      const existingIndex = usageRecords.findIndex((record) => record.periodKey === periodKey);
+      if (existingIndex >= 0) {
+        usageRecords[existingIndex] = counter;
+      } else {
+        usageRecords.push(counter);
+      }
+
+      tx.set(userDoc.ref, { usage: serializeUsageRecords(usageRecords) }, { merge: true });
+    });
 
     logger.info('Usage counters reset', { userId, plan, reason });
   },
@@ -314,25 +390,36 @@ const usageTrackerService = {
   async getUsageSummary(userId: string, plan: PlanType, asOf: Date = new Date()): Promise<UsageSummary> {
     const db = getDb();
     const periodKey = formatPeriodKey(asOf);
-    const userDocRef = db.collection(USERS_COLLECTION).doc(userId);
-    const usageCollectionRef = userDocRef.collection(USAGE_SUBCOLLECTION);
-    const querySnap = await usageCollectionRef.where('periodKey', '==', periodKey).limit(1).get();
+    const userQuery = getUserQuery(db, userId);
+    const userSnap = await userQuery.get();
     const now = asOf;
 
     let counter: UsageCounterDoc;
 
-    if (!querySnap.empty) {
-      const data = querySnap.docs[0].data() as UsageCounterDoc;
-      counter = {
-        ...data,
-        periodKey,
-        planType: plan,
-        updatedAt: normalizeDate((data as any).updatedAt, now),
-        lastResetAt: normalizeDate((data as any).lastResetAt, now),
-      };
+    if (!userSnap.empty) {
+      const userDoc = userSnap.docs[0];
+      const usageRecords = deserializeUsageRecords(userDoc.data()?.usage, userId, plan, now);
+      const existing = usageRecords.find((record) => record.periodKey === periodKey);
+
+      if (existing) {
+        counter = {
+          ...existing,
+          periodKey,
+          planType: plan,
+          updatedAt: normalizeDate(existing.updatedAt, now),
+          lastResetAt: normalizeDate(existing.lastResetAt, now),
+        };
+      } else {
+        counter = {
+          ...buildCounterSkeleton(userId, plan, now),
+          periodKey,
+        };
+      }
     } else {
-      counter = buildCounterSkeleton(userId, plan, now);
-      counter.periodKey = periodKey;
+      counter = {
+        ...buildCounterSkeleton(userId, plan, now),
+        periodKey,
+      };
     }
 
     const limits = PLAN_LIMITS[plan];
