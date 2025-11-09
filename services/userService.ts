@@ -52,10 +52,16 @@ class UserService {
       if (!userQuery.empty) {
         // Update existing user with latest login time
         const existingData = userQuery.docs[0].data() as StoredUser;
+        const existingName = (existingData.name || '').trim();
+        const tokenName = (decodedToken.name || '').trim();
         userData = {
           ...existingData,
           uid: userId, // Update UID in case it changed
-          name: decodedToken.name || existingData.name,
+          name: existingName.length > 0
+            ? existingData.name
+            : tokenName.length > 0
+              ? decodedToken.name
+              : existingData.name,
           firstName: existingData.firstName ?? tokenFirstName,
           lastName: existingData.lastName ?? tokenLastName,
           picture: decodedToken.picture || existingData.picture,

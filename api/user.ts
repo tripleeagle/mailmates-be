@@ -52,9 +52,10 @@ const updateSettingsSchema = Joi.object({
 });
 
 const updateProfileSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(200),
   firstName: Joi.string().trim().max(100).allow('', null),
   lastName: Joi.string().trim().max(100).allow('', null)
-}).or('firstName', 'lastName');
+}).or('name', 'firstName', 'lastName');
 
 // Get user settings
 router.get('/settings', authenticateUser, async (req: Request, res: Response<ApiResponse<{ settings: UserSettings }>>) => {
@@ -259,13 +260,35 @@ router.put('/profile', authenticateUser, async (req: Request, res: Response<ApiR
       });
     }
 
+    const rawName = value.name as string | undefined | null;
     const rawFirstName = value.firstName as string | undefined | null;
     const rawLastName = value.lastName as string | undefined | null;
 
+    const trimmedName = rawName !== undefined && rawName !== null ? rawName.trim() : undefined;
     const trimmedFirstName = rawFirstName !== undefined && rawFirstName !== null ? rawFirstName.trim() : undefined;
     const trimmedLastName = rawLastName !== undefined && rawLastName !== null ? rawLastName.trim() : undefined;
 
-    const composedName = [trimmedFirstName, trimmedLastName].filter(Boolean).join(' ').trim();
+    let normalizedFirstName: string | null | undefined =
+      trimmedFirstName !== undefined ? (trimmedFirstName.length ? trimmedFirstName : null) : undefined;
+    let normalizedLastName: string | null | undefined =
+      trimmedLastName !== undefined ? (trimmedLastName.length ? trimmedLastName : null) : undefined;
+
+    if (trimmedName) {
+      const nameParts = trimmedName.split(/\s+/);
+      const firstPart = nameParts.shift() || '';
+      const remaining = nameParts.length ? nameParts.join(' ') : '';
+
+      if (normalizedFirstName === undefined) {
+        normalizedFirstName = firstPart.length ? firstPart : null;
+      }
+      if (normalizedLastName === undefined) {
+        normalizedLastName = remaining.length ? remaining : null;
+      }
+    }
+
+    const composedName = trimmedName && trimmedName.length
+      ? trimmedName
+      : [normalizedFirstName, normalizedLastName].filter(Boolean).join(' ').trim();
 
     if (!composedName) {
       return res.status(400).json({
@@ -275,11 +298,21 @@ router.put('/profile', authenticateUser, async (req: Request, res: Response<ApiR
       });
     }
 
-    const updatedUser = await userService.updateUserProfileByEmail(userEmail, {
-      firstName: trimmedFirstName ?? null,
-      lastName: trimmedLastName ?? null,
-      name: composedName
-    });
+    const updatePayload: {
+      firstName?: string | null;
+      lastName?: string | null;
+      name: string;
+    } = { name: composedName };
+
+    if (normalizedFirstName !== undefined) {
+      updatePayload.firstName = normalizedFirstName;
+    }
+
+    if (normalizedLastName !== undefined) {
+      updatePayload.lastName = normalizedLastName;
+    }
+
+    const updatedUser = await userService.updateUserProfileByEmail(userEmail, updatePayload);
 
     logger.info('User profile updated via API', {
       userId,
