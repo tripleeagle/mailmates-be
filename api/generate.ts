@@ -3,7 +3,9 @@ import Joi from 'joi';
 import { verifyIdToken } from '../config/firebase';
 import aiService from '../services/aiService';
 import logger from '../config/logger';
-import { GenerateRequest, ApiResponse, AIResponse, UsageData, User } from '../types';
+import { GenerateRequest, ApiResponse, UsageData } from '../types';
+import usageTrackerService, { UsageConsumptionResult, PlanType } from '../services/usageTrackerService';
+import userService from '../services/userService';
 
 const router = express.Router();
 
@@ -70,6 +72,24 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
 
     const { prompt, type, settings, emailContext } = value;
     const userId = req.user!.uid;
+    const requestedAt = new Date();
+
+    const planType = await getUserPlanType(userId);
+
+    const usageAttempt = await usageTrackerService.consumeUsage(userId, planType, settings.aiModel, requestedAt);
+
+    if (!usageAttempt.allowed) {
+      res.status(429).json({
+        success: false,
+        error: 'Usage limit reached',
+        message: buildLimitMessage(planType, usageAttempt),
+        metadata: {
+          usage: usageAttempt,
+          resetNotice: 'Usage limits reset on the 1st day of each month or immediately after purchasing a subscription again.',
+        },
+      });
+      return;
+    }
 
     logger.info('Email generation started', {
       userId,
@@ -90,7 +110,7 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
       totalTokens: result.tokensUsed?.total || 0
     }, processingTime);
 
-    // Log usage for analytics
+    // Log usage for analytics (separate from quota tracking)
     await logUsage(userId, {
       type,
       model: settings.aiModel,
@@ -113,12 +133,26 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
         metadata: {
           model: result.model,
           tokensUsed: result.tokensUsed,
-          processingTime: result.processingTime
+          processingTime: result.processingTime,
+          usage: usageAttempt
         }
       }
     });
 
   } catch (error) {
+    const userId = req.user?.uid;
+    const model = req.body?.settings?.aiModel;
+    if (userId && model) {
+      try {
+        await usageTrackerService.rollbackUsage(userId, model, new Date());
+      } catch (rollbackError) {
+        logger.error('Failed to rollback usage after generation error', {
+          userId,
+          model,
+          error: (rollbackError as Error).message
+        });
+      }
+    }
     logger.error('Email generation failed', {
       userId: req.user?.uid || 'unknown',
       error: (error as Error).message,
@@ -144,10 +178,30 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
       });
     }
 
+    const userId = req.user!.uid;
+    const requestedAt = new Date();
+    const planType = await getUserPlanType(userId);
+    const model = 'gpt-4o-mini';
+
+    const usageAttempt = await usageTrackerService.consumeUsage(userId, planType, model, requestedAt);
+
+    if (!usageAttempt.allowed) {
+      res.status(429).json({
+        success: false,
+        error: 'Usage limit reached',
+        message: buildLimitMessage(planType, usageAttempt),
+        metadata: {
+          usage: usageAttempt,
+          resetNotice: 'Usage limits reset on the 1st day of each month or immediately after purchasing a subscription again.',
+        },
+      });
+      return;
+    }
+
     const summary = await aiService.summarizeEmail(emailContent);
 
     logger.info('Email summarization completed', {
-      userId: req.user!.uid,
+      userId,
       contentLength: emailContent.length
     });
 
@@ -155,10 +209,24 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
       success: true,
       data: {
         summary
+      },
+      metadata: {
+        usage: usageAttempt,
       }
     });
 
   } catch (error) {
+    const userId = req.user?.uid;
+    if (userId) {
+      try {
+        await usageTrackerService.rollbackUsage(userId, 'gpt-4o-mini', new Date());
+      } catch (rollbackError) {
+        logger.error('Failed to rollback usage after summarization error', {
+          userId,
+          error: (rollbackError as Error).message
+        });
+      }
+    }
     logger.error('Email summarization failed', {
       userId: req.user?.uid || 'unknown',
       error: (error as Error).message,
@@ -191,10 +259,30 @@ router.post('/quick-reply', authenticateUser, async (req: Request<{}, ApiRespons
       });
     }
 
+    const userId = req.user!.uid;
+    const requestedAt = new Date();
+    const planType = await getUserPlanType(userId);
+    const model = 'gpt-5-nano';
+
+    const usageAttempt = await usageTrackerService.consumeUsage(userId, planType, model, requestedAt);
+
+    if (!usageAttempt.allowed) {
+      res.status(429).json({
+        success: false,
+        error: 'Usage limit reached',
+        message: buildLimitMessage(planType, usageAttempt),
+        metadata: {
+          usage: usageAttempt,
+          resetNotice: 'Usage limits reset on the 1st day of each month or immediately after purchasing a subscription again.',
+        },
+      });
+      return;
+    }
+
     const reply = await aiService.generateQuickReply(quickReplyType, emailContent);
 
     logger.info('Quick reply generation completed', {
-      userId: req.user!.uid,
+      userId,
       quickReplyType,
       contentLength: emailContent.length,
       replyLength: reply.length
@@ -204,10 +292,24 @@ router.post('/quick-reply', authenticateUser, async (req: Request<{}, ApiRespons
       success: true,
       data: {
         reply
+      },
+      metadata: {
+        usage: usageAttempt,
       }
     });
 
   } catch (error) {
+    const userId = req.user?.uid;
+    if (userId) {
+      try {
+        await usageTrackerService.rollbackUsage(userId, 'gpt-5-nano', new Date());
+      } catch (rollbackError) {
+        logger.error('Failed to rollback usage after quick reply error', {
+          userId,
+          error: (rollbackError as Error).message
+        });
+      }
+    }
     logger.error('Quick reply generation failed', {
       userId: req.user?.uid || 'unknown',
       error: (error as Error).message,
@@ -239,6 +341,37 @@ async function logUsage(userId: string, usageData: UsageData): Promise<void> {
     logger.error('Failed to log usage', { userId, error: (error as Error).message });
     // Don't throw error for logging failures
   }
+}
+
+async function getUserPlanType(userId: string): Promise<PlanType> {
+  try {
+    const userRecord = await userService.getUser(userId);
+    const planType = usageTrackerService.resolvePlanType(userRecord?.subscription?.planType as string | undefined);
+    return planType;
+  } catch (error) {
+    logger.error('Failed to resolve user plan type, defaulting to free', {
+      userId,
+      error: (error as Error).message
+    });
+    return 'free';
+  }
+}
+
+function buildLimitMessage(planType: PlanType, usageAttempt: UsageConsumptionResult): string {
+  const tierLabel = usageAttempt.tier === 'basic' ? 'basic' : 'advanced';
+  const limit = usageAttempt.limit;
+  const remaining = usageAttempt.remaining;
+  const baseMessage = limit === null
+    ? `You have reached the current usage limit for ${tierLabel} models on your ${planType} plan.`
+    : `You have reached the ${tierLabel} model limit (${limit} per month) for your ${planType} plan.`;
+
+  const resetMessage = 'Usage resets on the 1st day of each month. Purchasing a subscription again immediately resets your usage counters.';
+
+  if (remaining !== null && remaining > 0) {
+    return `${baseMessage} You have ${remaining} remaining requests this month.`;
+  }
+
+  return `${baseMessage} ${resetMessage}`;
 }
 
 export default router;

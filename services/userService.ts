@@ -11,6 +11,10 @@ export interface StoredUser extends AISettings {
   createdAt: Date;
   updatedAt: Date;
   lastLoginAt?: Date;
+  subscription?: {
+    planType?: string | null;
+    [key: string]: unknown;
+  } | null;
 }
 
 class UserService {

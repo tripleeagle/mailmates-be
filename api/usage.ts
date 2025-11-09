@@ -2,6 +2,8 @@ import express, { Request, Response, NextFunction } from 'express';
 import { verifyIdToken, getFirestore } from '../config/firebase';
 import logger from '../config/logger';
 import { ApiResponse, UsageData } from '../types';
+import usageTrackerService from '../services/usageTrackerService';
+import userService from '../services/userService';
 
 const router = express.Router();
 
@@ -91,6 +93,67 @@ router.post('/log', authenticateUser, async (req: Request<{}, ApiResponse, LogUs
     });
   }
 });
+
+// Get usage quota summary for current period
+router.get(
+  '/quota',
+  authenticateUser,
+  async (
+    req: Request,
+    res: Response<
+      ApiResponse<{
+        quota: {
+          planType: string;
+          counts: { basic: number; advanced: number };
+          limits: { basic: number | null; advanced: number | null };
+          remaining: { basic: number | null; advanced: number | null };
+          period: {
+            key: string;
+            resetsOn: string;
+            lastResetAt: string;
+            lastResetReason: 'monthly' | 'subscription' | null;
+          };
+        };
+      }>
+    >
+  ) => {
+    try {
+      const userId = req.user!.uid;
+      const userRecord = await userService.getUser(userId);
+      const planType = usageTrackerService.resolvePlanType(
+        (userRecord?.subscription?.planType as string | undefined) ?? null
+      );
+      const summary = await usageTrackerService.getUsageSummary(userId, planType, new Date());
+
+      res.json({
+        success: true,
+        data: {
+          quota: {
+            planType: summary.planType,
+            counts: summary.counts,
+            limits: summary.limits,
+            remaining: summary.remaining,
+            period: {
+              key: summary.periodKey,
+              resetsOn: summary.resetsOn.toISOString(),
+              lastResetAt: summary.lastResetAt.toISOString(),
+              lastResetReason: summary.lastResetReason ?? null,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      logger.error('Failed to get usage quota', {
+        userId: req.user?.uid || 'unknown',
+        error: (error as Error).message,
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to retrieve usage quota',
+      });
+    }
+  }
+);
 
 // Get usage statistics
 router.get('/stats', authenticateUser, async (req: Request, res: Response<ApiResponse<{ stats: UsageStats }>>) => {

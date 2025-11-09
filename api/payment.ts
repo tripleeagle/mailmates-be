@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { verifyIdToken, getFirestore } from '../config/firebase';
 import logger from '../config/logger';
 import { ApiResponse } from '../types';
+import usageTrackerService from '../services/usageTrackerService';
 
 const router = express.Router();
 
@@ -468,6 +469,18 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req: R
               planType,
               billingPeriod,
             });
+
+            try {
+              const resolvedPlan = usageTrackerService.resolvePlanType(
+                (subscriptionSummary?.planType as string | undefined) || planType
+              );
+              await usageTrackerService.resetUsage(userId, resolvedPlan, 'subscription', new Date());
+            } catch (resetError) {
+              logger.error('Failed to reset usage counters after subscription purchase', {
+                userId,
+                error: (resetError as Error).message,
+              });
+            }
           }
           else {
             logger.error('User not found in database', {
