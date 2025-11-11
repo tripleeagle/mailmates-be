@@ -3,13 +3,20 @@ import Joi from 'joi';
 import { verifyIdToken } from '../config/firebase';
 import aiService from '../services/aiService';
 import logger from '../config/logger';
-import { GenerateRequest, ApiResponse, UsageData } from '../types';
+import { GenerateRequest, ApiResponse, UsageData, EmailContextInput } from '../types';
 import usageTrackerService, { UsageConsumptionResult, PlanType } from '../services/usageTrackerService';
 import userService from '../services/userService';
+import { formatEmailContext } from '../utils/emailContext';
 
 const router = express.Router();
 
 // Validation schemas
+const emailContextSchema = Joi.alternatives().try(
+  Joi.string().allow('', null),
+  Joi.object().unknown(true),
+  Joi.array().items(Joi.object().unknown(true))
+).allow(null);
+
 const generateSchema = Joi.object({
   prompt: Joi.string().min(1).max(2000).required(),
   type: Joi.string().valid('ai-assistant', 'ai-reply').required(),
@@ -20,17 +27,26 @@ const generateSchema = Joi.object({
     aiModel: Joi.string().required(),
     customInstructions: Joi.array().items(Joi.string()).default([])
   }).required(),
-  emailContext: Joi.string().allow(null, ''),
+  emailContext: emailContextSchema,
   user: Joi.object().allow(null)
 });
 
+const summarizeSchema = Joi.object({
+  emailContent: emailContextSchema.required()
+});
+
+const quickReplySchema = Joi.object({
+  quickReplyType: Joi.string().min(1).required(),
+  emailContent: emailContextSchema.required()
+});
+
 interface SummarizeRequest {
-  emailContent: string;
+  emailContent: EmailContextInput;
 }
 
 interface QuickReplyRequest {
   quickReplyType: string;
-  emailContent: string;
+  emailContent: EmailContextInput;
 }
 
 // Middleware to verify authentication
@@ -169,9 +185,19 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
 // Summarize email endpoint
 router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<{ summary: string }>, SummarizeRequest>, res: Response<ApiResponse<{ summary: string }>>) => {
   try {
-    const { emailContent } = req.body;
-    
-    if (!emailContent || typeof emailContent !== 'string') {
+    const { error, value } = summarizeSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error',
+        message: error.details.map(d => d.message).join(', ')
+      });
+    }
+
+    const { emailContent } = value;
+
+    const formattedContent = formatEmailContext(emailContent);
+    if (!formattedContent) {
       return res.status(400).json({
         success: false,
         error: 'Email content is required'
@@ -202,7 +228,7 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
 
     logger.info('Email summarization completed', {
       userId,
-      contentLength: emailContent.length
+      contentLength: formattedContent.length
     });
 
     res.json({
@@ -243,16 +269,19 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
 // Quick reply endpoint
 router.post('/quick-reply', authenticateUser, async (req: Request<{}, ApiResponse<{ reply: string }>, QuickReplyRequest>, res: Response<ApiResponse<{ reply: string }>>) => {
   try {
-    const { quickReplyType, emailContent } = req.body;
-    
-    if (!quickReplyType || typeof quickReplyType !== 'string') {
+    const { error, value } = quickReplySchema.validate(req.body);
+    if (error) {
       return res.status(400).json({
         success: false,
-        error: 'Quick reply type is required'
+        error: 'Validation error',
+        message: error.details.map(d => d.message).join(', ')
       });
     }
 
-    if (!emailContent || typeof emailContent !== 'string') {
+    const { quickReplyType, emailContent } = value;
+
+    const formattedContent = formatEmailContext(emailContent);
+    if (!formattedContent) {
       return res.status(400).json({
         success: false,
         error: 'Email content is required'
@@ -284,7 +313,7 @@ router.post('/quick-reply', authenticateUser, async (req: Request<{}, ApiRespons
     logger.info('Quick reply generation completed', {
       userId,
       quickReplyType,
-      contentLength: emailContent.length,
+      contentLength: formattedContent.length,
       replyLength: reply.length
     });
 

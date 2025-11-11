@@ -29,11 +29,37 @@ export interface AISettings {
   customInstructions: string[];
 }
 
+// Email context types
+export interface EmailMetadata {
+  senderEmail?: string | null;
+  senderName?: string | null;
+  subject?: string | null;
+  sentAt?: string | null;
+  threadId?: string | null;
+  messageId?: string | null;
+  [key: string]: any;
+}
+
+export interface EmailContextPayload {
+  markdown?: string | null;
+  plainText?: string | null;
+  metadata?: EmailMetadata | null;
+  [key: string]: any;
+}
+
+export type EmailContextInput =
+  | string
+  | EmailContextPayload
+  | EmailContextPayload[]
+  | Array<{ emailContent?: EmailContextPayload }>
+  | null
+  | undefined;
+
 export interface GenerateRequest {
   prompt: string;
   type: 'ai-assistant' | 'ai-reply';
   settings: AISettings;
-  emailContext?: string;
+  emailContext?: EmailContextInput;
   user?: User;
 }
 

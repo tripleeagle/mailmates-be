@@ -2,7 +2,8 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import logger from '../config/logger';
-import { AISettings, AIResponse } from '../types';
+import { AISettings, AIResponse, EmailContextInput } from '../types';
+import { formatEmailContext } from '../utils/emailContext';
 
 interface AIProviderResponse {
   subject: string;
@@ -33,7 +34,7 @@ class AIService {
     this.googleAI = process.env.GOOGLE_AI_API_KEY ? new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY) : null;
   }
 
-  async generateEmail(prompt: string, settings: AISettings, emailContext?: string | null): Promise<AIResponse> {
+  async generateEmail(prompt: string, settings: AISettings, emailContext?: EmailContextInput): Promise<AIResponse> {
     const model = settings.aiModel || 'default';
     
     try {
@@ -86,7 +87,7 @@ class AIService {
     }
   }
 
-  private async generateWithOpenAI(prompt: string, settings: AISettings, emailContext?: string | null): Promise<AIProviderResponse> {
+  private async generateWithOpenAI(prompt: string, settings: AISettings, emailContext?: EmailContextInput): Promise<AIProviderResponse> {
     if (!this.openai) {
       throw new Error('OpenAI API key not configured');
     }
@@ -120,7 +121,7 @@ class AIService {
     };
   }
 
-  private async generateWithClaude(prompt: string, settings: AISettings, emailContext?: string | null): Promise<AIProviderResponse> {
+  private async generateWithClaude(prompt: string, settings: AISettings, emailContext?: EmailContextInput): Promise<AIProviderResponse> {
     if (!this.anthropic) {
       throw new Error('Anthropic API key not configured');
     }
@@ -155,7 +156,7 @@ class AIService {
     };
   }
 
-  private async generateWithGemini(prompt: string, settings: AISettings, emailContext?: string | null): Promise<AIProviderResponse> {
+  private async generateWithGemini(prompt: string, settings: AISettings, emailContext?: EmailContextInput): Promise<AIProviderResponse> {
     if (!this.googleAI) {
       throw new Error('Google AI API key not configured');
     }
@@ -194,21 +195,21 @@ class AIService {
     };
   }
 
-  private async generateWithLlama(prompt: string, settings: AISettings, emailContext?: string | null): Promise<AIProviderResponse> {
+  private async generateWithLlama(prompt: string, settings: AISettings, emailContext?: EmailContextInput): Promise<AIProviderResponse> {
     // This would integrate with a Llama API service
     // For now, we'll use a fallback to OpenAI
     logger.warn('Llama 3.1 not yet implemented, falling back to OpenAI');
     return this.generateWithOpenAI(prompt, settings, emailContext);
   }
 
-  private async generateWithDeepSeek(prompt: string, settings: AISettings, emailContext?: string | null): Promise<AIProviderResponse> {
+  private async generateWithDeepSeek(prompt: string, settings: AISettings, emailContext?: EmailContextInput): Promise<AIProviderResponse> {
     // This would integrate with DeepSeek API
     // For now, we'll use a fallback to OpenAI
     logger.warn('DeepSeek-V3.1 not yet implemented, falling back to OpenAI');
     return this.generateWithOpenAI(prompt, settings, emailContext);
   }
 
-  private buildSystemPrompt(settings: AISettings, emailContext?: string | null): string {
+  private buildSystemPrompt(settings: AISettings, emailContext?: EmailContextInput): string {
     const { language, tone, length, customInstructions } = settings;
     
     let systemPrompt = `You are an AI email assistant. Generate professional emails based on user requests.
@@ -221,8 +222,9 @@ Requirements:
 - Be professional, clear, and concise
 - Include proper email formatting with greetings and closings`;
 
-    if (emailContext) {
-      systemPrompt += `\n\nContext from the email being replied to:\n${emailContext}`;
+    const formattedContext = formatEmailContext(emailContext);
+    if (formattedContext) {
+      systemPrompt += `\n\nContext from the email being replied to:\n${formattedContext}`;
     }
 
     if (customInstructions && customInstructions.length > 0) {
@@ -234,12 +236,16 @@ Requirements:
     return systemPrompt;
   }
 
-  async summarizeEmail(emailContent: string): Promise<string> {
+  async summarizeEmail(emailContent: EmailContextInput): Promise<string> {
     if (!this.openai) {
       throw new Error('Email summarization not available - OpenAI API key not configured.');
     }
     
-    logger.info('Summarizing email', { contentLength: emailContent.length });
+    const formattedContent = formatEmailContext(emailContent);
+
+    if (!formattedContent) {
+      throw new Error('Email content is empty.');
+    }
 
     try {
       const response = await this.openai.chat.completions.create({
@@ -251,7 +257,7 @@ Requirements:
           },
           {
             role: 'user',
-            content: emailContent
+            content: formattedContent
           }
         ]
       });
@@ -263,14 +269,20 @@ Requirements:
     }
   }
 
-  async generateQuickReply(quickReplyType: string, emailContent: string): Promise<string> {
+  async generateQuickReply(quickReplyType: string, emailContent: EmailContextInput): Promise<string> {
     if (!this.openai) {
       throw new Error('Quick reply generation not available - OpenAI API key not configured.');
     }
     
+    const formattedContent = formatEmailContext(emailContent);
+
+    if (!formattedContent) {
+      throw new Error('Email content is empty.');
+    }
+
     logger.info('Generating quick reply', { 
       quickReplyType, 
-      contentLength: emailContent.length 
+      contentLength: formattedContent.length 
     });
 
     try {
@@ -286,10 +298,10 @@ Your task is to:
 
 Return ONLY the reply text without any JSON formatting, quotes, or metadata.`;
 
-      const userPrompt = `Quick Reply Type: "${quickReplyType}"
+    const userPrompt = `Quick Reply Type: "${quickReplyType}"
 
 Original Email Content:
-${emailContent}
+${formattedContent}
 
 Generate a brief, professional reply based on the quick reply type above. The reply should be contextual to the email content and sound natural.`;
 
