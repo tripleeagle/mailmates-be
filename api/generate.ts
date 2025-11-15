@@ -3,9 +3,9 @@ import Joi from 'joi';
 import { verifyIdToken } from '../config/firebase';
 import aiService from '../services/aiService';
 import logger from '../config/logger';
-import { GenerateRequest, ApiResponse, UsageData, EmailContextInput } from '../types';
+import { GenerateRequest, ApiResponse, UsageData, EmailContextInput, AISettings } from '../types';
 import usageTrackerService, { UsageConsumptionResult, PlanType } from '../services/usageTrackerService';
-import userService from '../services/userService';
+import userService, { StoredUser } from '../services/userService';
 import { formatEmailContext } from '../utils/emailContext';
 
 const router = express.Router();
@@ -37,7 +37,15 @@ const summarizeSchema = Joi.object({
 
 const quickReplySchema = Joi.object({
   quickReplyType: Joi.string().min(1).required(),
-  emailContent: emailContextSchema.required()
+  emailContent: emailContextSchema.required(),
+  settings: Joi.object({
+    language: Joi.string().allow('', null),
+    tone: Joi.string().allow('', null),
+    length: Joi.string().allow('', null),
+    aiModel: Joi.string().allow('', null),
+    customInstructions: Joi.array().items(Joi.string()).default([]),
+    mode: Joi.string().allow('', null)
+  }).optional()
 });
 
 interface SummarizeRequest {
@@ -47,7 +55,109 @@ interface SummarizeRequest {
 interface QuickReplyRequest {
   quickReplyType: string;
   emailContent: EmailContextInput;
+  settings?: Partial<AISettings> & { mode?: string | null };
 }
+
+type QuickReplySettingsPayload = Partial<AISettings> & { mode?: string };
+
+const sanitizeSettingValue = (value?: string | null): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const sanitizeCustomInstructions = (instructions?: string[] | null): string[] => {
+  if (!Array.isArray(instructions)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const sanitized: string[] = [];
+
+  for (const instruction of instructions) {
+    if (typeof instruction !== 'string') {
+      continue;
+    }
+    const trimmed = instruction.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const dedupeKey = trimmed.toLowerCase();
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+    sanitized.push(trimmed);
+  }
+
+  return sanitized;
+};
+
+const sanitizeQuickReplySettings = (
+  settings?: Partial<AISettings> & { mode?: string | null }
+): QuickReplySettingsPayload | undefined => {
+  if (!settings) {
+    return undefined;
+  }
+
+  const sanitized: QuickReplySettingsPayload = {
+    language: sanitizeSettingValue(settings.language),
+    tone: sanitizeSettingValue(settings.tone),
+    length: sanitizeSettingValue(settings.length),
+    aiModel: sanitizeSettingValue(settings.aiModel),
+    customInstructions: sanitizeCustomInstructions(settings.customInstructions),
+    mode: sanitizeSettingValue(settings.mode)
+  };
+
+  const hasAnySetting =
+    sanitized.language ||
+    sanitized.tone ||
+    sanitized.length ||
+    sanitized.aiModel ||
+    sanitized.mode ||
+    (sanitized.customInstructions && sanitized.customInstructions.length > 0);
+
+  return hasAnySetting ? sanitized : undefined;
+};
+
+const extractUserQuickReplySettings = (user: StoredUser): QuickReplySettingsPayload => {
+  const rawMode = (user as any)?.mode ?? (user as any)?.quickReplyMode;
+  return {
+    language: sanitizeSettingValue(user.language) ?? 'auto',
+    tone: sanitizeSettingValue(user.tone) ?? 'auto',
+    length: sanitizeSettingValue(user.length) ?? 'auto',
+    aiModel: sanitizeSettingValue(user.aiModel) ?? 'gpt-5-nano',
+    customInstructions: sanitizeCustomInstructions(user.customInstructions),
+    mode: sanitizeSettingValue(rawMode)
+  };
+};
+
+const mergeQuickReplySettings = (
+  userSettings?: QuickReplySettingsPayload,
+  requestSettings?: QuickReplySettingsPayload
+): QuickReplySettingsPayload | undefined => {
+  if (!userSettings && !requestSettings) {
+    return undefined;
+  }
+
+  const combinedCustomInstructions = [
+    ...(userSettings?.customInstructions ?? []),
+    ...(requestSettings?.customInstructions ?? [])
+  ];
+
+  const uniqueCustomInstructions = sanitizeCustomInstructions(combinedCustomInstructions);
+
+  return {
+    language: requestSettings?.language ?? userSettings?.language ?? 'auto',
+    tone: requestSettings?.tone ?? userSettings?.tone ?? 'auto',
+    length: requestSettings?.length ?? userSettings?.length ?? 'auto',
+    aiModel: requestSettings?.aiModel ?? userSettings?.aiModel ?? 'gpt-5-nano',
+    customInstructions: uniqueCustomInstructions,
+    mode: requestSettings?.mode ?? userSettings?.mode
+  };
+};
 
 // Middleware to verify authentication
 const authenticateUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -278,7 +388,7 @@ router.post('/quick-reply', authenticateUser, async (req: Request<{}, ApiRespons
       });
     }
 
-    const { quickReplyType, emailContent } = value;
+    const { quickReplyType, emailContent, settings } = value as QuickReplyRequest;
 
     const formattedContent = formatEmailContext(emailContent);
     if (!formattedContent) {
@@ -308,7 +418,32 @@ router.post('/quick-reply', authenticateUser, async (req: Request<{}, ApiRespons
       return;
     }
 
-    const reply = await aiService.generateQuickReply(quickReplyType, emailContent);
+    const requestSettings = sanitizeQuickReplySettings(settings);
+
+    let userRecord: StoredUser | null = null;
+    let userSettings: QuickReplySettingsPayload | undefined;
+    try {
+      userRecord = await userService.getUser(userId);
+      if (userRecord) {
+        userSettings = extractUserQuickReplySettings(userRecord);
+      }
+    } catch (settingsError) {
+      logger.error('Failed to load user settings for quick reply, using defaults', {
+        userId,
+        error: (settingsError as Error).message
+      });
+    }
+
+    const quickReplySettings = mergeQuickReplySettings(userSettings, requestSettings);
+
+    logger.debug('Quick reply settings resolved', {
+      userId,
+      hasUserSettings: !!userSettings,
+      hasRequestSettings: !!requestSettings,
+      effectiveSettings: quickReplySettings
+    });
+
+    const reply = await aiService.generateQuickReply(quickReplyType, emailContent, quickReplySettings);
 
     logger.info('Quick reply generation completed', {
       userId,

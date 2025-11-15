@@ -269,7 +269,11 @@ Requirements:
     }
   }
 
-  async generateQuickReply(quickReplyType: string, emailContent: EmailContextInput): Promise<string> {
+  async generateQuickReply(
+    quickReplyType: string,
+    emailContent: EmailContextInput,
+    userSettings?: Partial<AISettings> & { mode?: string | null }
+  ): Promise<string> {
     if (!this.openai) {
       throw new Error('Quick reply generation not available - OpenAI API key not configured.');
     }
@@ -286,16 +290,61 @@ Requirements:
     });
 
     try {
+      const language = userSettings?.language ?? 'auto';
+      const tone = userSettings?.tone ?? 'auto';
+      const length = userSettings?.length ?? 'auto';
+      const preferredModel = typeof userSettings?.aiModel === 'string' && userSettings.aiModel.trim().length > 0
+        ? userSettings.aiModel.trim()
+        : 'gpt-5-nano';
+      const normalizedModel = preferredModel.toLowerCase() === 'default' ? 'gpt-5-nano' : preferredModel;
+      const openAIModel = 'gpt-5-nano';
+      if (normalizedModel.toLowerCase() !== openAIModel) {
+        logger.warn('Quick reply model preference not supported, falling back to gpt-5-nano', {
+          preferredModel: normalizedModel
+        });
+      }
+      const mode = userSettings?.mode && typeof userSettings.mode === 'string'
+        ? userSettings.mode.trim()
+        : undefined;
+      const rawCustomInstructions = userSettings?.customInstructions ?? [];
+      const customInstructions = Array.isArray(rawCustomInstructions)
+        ? rawCustomInstructions
+            .filter((instruction) => typeof instruction === 'string')
+            .map((instruction) => (instruction as string).trim())
+            .filter((instruction) => instruction.length > 0)
+        : [];
+
+      const languageDirective = language === 'auto'
+        ? 'Write the reply in the same language as the original email unless the user preference clearly indicates otherwise.'
+        : `Write the reply in ${language}.`;
+
+      const toneDirective = tone === 'auto'
+        ? 'Match the tone of the original email while remaining professional.'
+        : `Use a ${tone} tone while remaining professional.`;
+
+      const lengthDirective = length === 'auto'
+        ? 'Keep the reply brief (1-3 sentences) unless additional detail is needed for clarity.'
+        : `Keep the reply ${length}.`;
+
+      const modeDirective = mode
+        ? `Respect the user\'s preferred mode: "${mode}".`
+        : '';
+
+      const additionalDirectives = customInstructions.length > 0
+        ? `Follow these additional user instructions:\n- ${customInstructions.map((instruction) => instruction.trim()).join('\n- ')}`
+        : '';
+
       const systemPrompt = `You are an AI email assistant that generates quick, contextual email replies.
       
-Your task is to:
-1. Read the provided email content
-2. Generate a professional, contextual reply based on the quick reply type (e.g., "Yes", "No", "Thanks", or custom instructions)
-3. Keep the reply brief but professional (1-3 sentences)
-4. Match the tone of the original email
-5. Include proper greetings and closings appropriate for the context with appropriate formatting (e.g. greeting on one line, main point on another line, etc.)
-6. Make the reply sound natural and personalized, not robotic
-
+Requirements:
+- ${languageDirective}
+- ${toneDirective}
+- ${lengthDirective}
+- Always address the quick reply type intent: "${quickReplyType}".
+- Include proper greetings and closings appropriate for the context with clear formatting (e.g., greeting on its own line).
+- Make the reply sound natural and personalized, never robotic.
+${modeDirective ? `- ${modeDirective}` : ''}
+${additionalDirectives ? `${additionalDirectives}\n` : ''}
 Return ONLY the reply text without any JSON formatting, quotes, or metadata.`;
 
     const userPrompt = `Quick Reply Type: "${quickReplyType}"
@@ -303,10 +352,14 @@ Return ONLY the reply text without any JSON formatting, quotes, or metadata.`;
 Original Email Content:
 ${formattedContent}
 
-Generate a brief, professional reply based on the quick reply type above. The reply should be contextual to the email content and sound natural.`;
-
+Generate a brief, professional reply based on the quick reply type above. The reply should be contextual to the email content and follow all user preferences provided.`;
+      logger.debug('Generating quick reply with prompts', {
+        quickReplyType,
+        systemPrompt,
+        userPrompt
+      });
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-5-nano',
+        model: openAIModel,
         messages: [
           {
             role: 'system',
