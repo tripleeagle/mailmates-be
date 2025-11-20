@@ -4,6 +4,8 @@ import { LogContext } from '../types';
 
 const isVercel = Boolean(process.env.VERCEL);
 const isTestEnv = process.env.NODE_ENV === 'test';
+// Firebase logging is disabled by default - set ENABLE_FIREBASE_LOGGING=true to enable
+const enableFirebaseLogging = process.env.ENABLE_FIREBASE_LOGGING === 'true';
 
 // Custom format for console output (local/dev)
 const localConsoleFormat = winston.format.combine(
@@ -196,6 +198,11 @@ export class FirebaseLogWriter {
   async log(level: string, message: string, context: LogContext = {}): Promise<void> {
     this.provider.log(level, message, context);
 
+    // Skip Firebase logging if disabled
+    if (!enableFirebaseLogging) {
+      return;
+    }
+
     try {
       const firestore = await this.getFirestore();
       if (!firestore) {
@@ -280,6 +287,7 @@ const levelMethods = new Set([
   'silly',
 ]);
 
+// Create Firebase logger proxy that conditionally logs to Firebase based on enableFirebaseLogging
 const firebaseLogger = new Proxy(extendedLogger, {
   get(target, prop, receiver) {
     const original = Reflect.get(target, prop, receiver);
@@ -288,7 +296,7 @@ const firebaseLogger = new Proxy(extendedLogger, {
       if (prop === 'log') {
         return (...args: unknown[]) => {
           const normalized = normalizeLogArgs(args);
-          if (normalized) {
+          if (normalized && enableFirebaseLogging) {
             void firebaseWriter.log(normalized.level, normalized.message, normalized.context);
           }
           return original.apply(target, args);
@@ -298,7 +306,7 @@ const firebaseLogger = new Proxy(extendedLogger, {
       if (levelMethods.has(prop)) {
         return (...args: unknown[]) => {
           const normalized = normalizeLevelArgs(prop, args);
-          if (normalized) {
+          if (normalized && enableFirebaseLogging) {
             void firebaseWriter.log(normalized.level, normalized.message, normalized.context);
           }
           return original.apply(target, args);
