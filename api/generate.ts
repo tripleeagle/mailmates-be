@@ -125,7 +125,7 @@ const sanitizeQuickReplySettings = (
 const extractUserQuickReplySettings = (user: StoredUser): QuickReplySettingsPayload => {
   const rawMode = (user as any)?.mode ?? (user as any)?.quickReplyMode;
   return {
-    language: sanitizeSettingValue(user.language) ?? 'auto',
+    language: 'auto',
     tone: sanitizeSettingValue(user.tone) ?? 'auto',
     length: sanitizeSettingValue(user.length) ?? 'auto',
     aiModel: sanitizeSettingValue(user.aiModel) ?? 'gpt-5-nano',
