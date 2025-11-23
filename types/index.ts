@@ -28,7 +28,8 @@ export interface AISettings {
   preferredClosing?: string;
   jobTitleOrCompany?: string;
 
-  // Screen 2 - Tone & Length
+  // Screen 2 - Tone and Writing Structure
+
   emailLength?: string;
   emailTone?: string;
   customTones?: string[];

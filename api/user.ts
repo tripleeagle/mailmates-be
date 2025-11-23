@@ -49,7 +49,8 @@ const updateSettingsSchema = Joi.object({
     preferredClosing: Joi.string().optional().allow(''),
     jobTitleOrCompany: Joi.string().optional().allow(''),
     
-    // Screen 2 - Tone & Length
+    // Screen 2 - Tone and Writing Structure
+
     emailLength: Joi.string().optional(),
     emailTone: Joi.string().optional(),
     customTones: Joi.array().items(Joi.string()).optional(),
@@ -121,7 +122,7 @@ router.get('/settings', authenticateUser, async (req: Request, res: Response<Api
       preferredClosing: userData.preferredClosing,
       jobTitleOrCompany: userData.jobTitleOrCompany,
       
-      // Screen 2 - Tone & Length
+      // Screen 2 - Tone and Writing Structure
       emailLength: userData.emailLength,
       emailTone: userData.emailTone,
       customTones: userData.customTones,
