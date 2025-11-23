@@ -43,12 +43,40 @@ const authenticateUser = async (req: Request, res: Response, next: NextFunction)
 // Validation schema for settings update
 const updateSettingsSchema = Joi.object({
   settings: Joi.object({
+    // Screen 1 - Identity & Basics
+    userName: Joi.string().optional().allow(''),
+    defaultGreeting: Joi.string().optional().allow(''),
+    preferredClosing: Joi.string().optional().allow(''),
+    jobTitleOrCompany: Joi.string().optional().allow(''),
+    
+    // Screen 2 - Tone & Length
+    emailLength: Joi.string().optional(),
+    emailTone: Joi.string().optional(),
+    customTones: Joi.array().items(Joi.string()).optional(),
+    
+    // Screen 3 - Formatting & Style
+    formattingPreferences: Joi.array().items(Joi.string()).optional(),
+    customFormattings: Joi.array().items(Joi.string()).optional(),
+    writingStylePreferences: Joi.array().items(Joi.string()).optional(),
+    customWritingStyle: Joi.string().optional().allow(''),
+    phrasesToAvoid: Joi.array().items(Joi.string()).optional(),
+    customPhraseToAvoid: Joi.string().optional().allow(''),
+    
+    // Screen 4 - Context & Language Behavior
+    followUpEmailBehavior: Joi.string().optional(),
+    defaultLanguage: Joi.string().optional(),
+    defaultSummaryLanguage: Joi.string().optional(),
+    languageDetection: Joi.string().optional(),
+    
+    // Screen 5 - Model & Custom Rules
+    aiModel: Joi.string().optional(),
+    customInstructions: Joi.array().items(Joi.string()).optional(),
+    
+    // Legacy fields (for backward compatibility)
     language: Joi.string().optional(),
     tone: Joi.string().optional(),
-    length: Joi.string().optional(),
-    aiModel: Joi.string().optional(),
-    customInstructions: Joi.array().items(Joi.string()).optional()
-  }).required()
+    length: Joi.string().optional()
+  }).unknown(true).required() // Allow unknown fields (like createdAt, updatedAt) but ignore them
 });
 
 const updateProfileSchema = Joi.object({
@@ -87,11 +115,40 @@ router.get('/settings', authenticateUser, async (req: Request, res: Response<Api
     
     // Convert to UserSettings format (excluding profile fields)
     const settings: UserSettings = {
+      // Screen 1 - Identity & Basics
+      userName: userData.userName,
+      defaultGreeting: userData.defaultGreeting,
+      preferredClosing: userData.preferredClosing,
+      jobTitleOrCompany: userData.jobTitleOrCompany,
+      
+      // Screen 2 - Tone & Length
+      emailLength: userData.emailLength,
+      emailTone: userData.emailTone,
+      customTones: userData.customTones,
+      
+      // Screen 3 - Formatting & Style
+      formattingPreferences: userData.formattingPreferences,
+      customFormattings: userData.customFormattings,
+      writingStylePreferences: userData.writingStylePreferences,
+      customWritingStyle: userData.customWritingStyle,
+      phrasesToAvoid: userData.phrasesToAvoid,
+      customPhraseToAvoid: userData.customPhraseToAvoid,
+      
+      // Screen 4 - Context & Language Behavior
+      followUpEmailBehavior: userData.followUpEmailBehavior,
+      defaultLanguage: userData.defaultLanguage,
+      defaultSummaryLanguage: userData.defaultSummaryLanguage,
+      languageDetection: userData.languageDetection,
+      
+      // Screen 5 - Model & Custom Rules
+      aiModel: userData.aiModel,
+      customInstructions: userData.customInstructions,
+      
+      // Legacy fields (for backward compatibility)
       language: userData.language,
       tone: userData.tone,
       length: userData.length,
-      aiModel: userData.aiModel,
-      customInstructions: userData.customInstructions,
+      
       createdAt: userData.createdAt,
       updatedAt: userData.updatedAt
     };
@@ -152,25 +209,28 @@ router.put('/settings', authenticateUser, async (req: Request<{}, ApiResponse<{ 
       return;
     }
     
-    // Update settings
+    // Merge settings with existing user data
     const updatedSettings: UserSettings = {
-      language: currentUser.language,
-      tone: currentUser.tone,
-      length: currentUser.length,
-      aiModel: currentUser.aiModel,
-      customInstructions: currentUser.customInstructions,
-      createdAt: currentUser.createdAt,
-      updatedAt: new Date(),
-      ...settings
+      ...currentUser,
+      ...settings,
+      updatedAt: new Date()
     };
     
     // Store updated settings using user service
-    await userService.storeUser({
-      uid: userId,
-      email: currentUser.email,
-      name: currentUser.name,
-      picture: currentUser.picture
-    } as any); // Type assertion needed due to DecodedIdToken interface
+    // We need to update the user document directly with the new settings
+    const db = getFirestore();
+    const userQuery = await db.collection('users').where('email', '==', userEmail).limit(1).get();
+    
+    if (!userQuery.empty) {
+      await userQuery.docs[0].ref.set(updatedSettings, { merge: true });
+    } else {
+      logger.warn('User document not found when updating settings', { userId, email: userEmail });
+      res.status(404).json({
+        success: false,
+        error: 'User not found. Please log in again.'
+      });
+      return;
+    }
     
     logger.info('User settings updated', { userId, updatedFields: Object.keys(settings) });
     

@@ -22,11 +22,39 @@ export interface User {
 
 // AI Service types
 export interface AISettings {
-  language: string;
-  tone: string;
-  length: string;
-  aiModel: string;
-  customInstructions: string[];
+  // Screen 1 - Identity & Basics
+  userName?: string;
+  defaultGreeting?: string;
+  preferredClosing?: string;
+  jobTitleOrCompany?: string;
+
+  // Screen 2 - Tone & Length
+  emailLength?: string;
+  emailTone?: string;
+  customTones?: string[];
+
+  // Screen 3 - Formatting & Style
+  formattingPreferences?: string[];
+  customFormattings?: string[];
+  writingStylePreferences?: string[];
+  customWritingStyle?: string;
+  phrasesToAvoid?: string[];
+  customPhraseToAvoid?: string;
+
+  // Screen 4 - Context & Language Behavior
+  followUpEmailBehavior?: string;
+  defaultLanguage?: string;
+  defaultSummaryLanguage?: string;
+  languageDetection?: string;
+
+  // Screen 5 - Model & Custom Rules
+  aiModel?: string;
+  customInstructions?: string[];
+
+  // Legacy fields (for backward compatibility)
+  language?: string;
+  tone?: string;
+  length?: string;
 }
 
 // Email context types
