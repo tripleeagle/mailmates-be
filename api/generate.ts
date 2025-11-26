@@ -21,12 +21,40 @@ const generateSchema = Joi.object({
   prompt: Joi.string().min(1).max(2000).required(),
   type: Joi.string().valid('ai-assistant', 'ai-reply').required(),
   settings: Joi.object({
-    language: Joi.string().required(),
-    tone: Joi.string().required(),
-    length: Joi.string().required(),
-    aiModel: Joi.string().required(),
-    customInstructions: Joi.array().items(Joi.string()).default([])
-  }).required(),
+    // Screen 1 - Identity & Basics
+    userName: Joi.string().optional().allow(''),
+    defaultGreeting: Joi.string().optional().allow(''),
+    preferredClosing: Joi.string().optional().allow(''),
+    jobTitleOrCompany: Joi.string().optional().allow(''),
+    
+    // Screen 2 - Tone and Writing Structure
+    emailLength: Joi.string().optional(),
+    emailTone: Joi.string().optional(),
+    customTones: Joi.array().items(Joi.string()).optional(),
+    
+    // Screen 3 - Formatting & Style
+    formattingPreferences: Joi.array().items(Joi.string()).optional(),
+    customFormattings: Joi.array().items(Joi.string()).optional(),
+    writingStylePreferences: Joi.array().items(Joi.string()).optional(),
+    customWritingStyle: Joi.string().optional().allow(''),
+    phrasesToAvoid: Joi.array().items(Joi.string()).optional(),
+    customPhraseToAvoid: Joi.string().optional().allow(''),
+    
+    // Screen 4 - Context & Language Behavior
+    followUpEmailBehavior: Joi.string().optional(),
+    defaultLanguage: Joi.string().optional(),
+    defaultSummaryLanguage: Joi.string().optional(),
+    languageDetection: Joi.string().optional(),
+    
+    // Screen 5 - Model & Custom Rules
+    aiModel: Joi.string().optional(),
+    customInstructions: Joi.array().items(Joi.string()).default([]),
+    
+    // Legacy fields (for backward compatibility)
+    language: Joi.string().optional(),
+    tone: Joi.string().optional(),
+    length: Joi.string().optional()
+  }).unknown(true).required(), // Allow unknown fields for future compatibility
   emailContext: emailContextSchema,
   user: Joi.object().allow(null)
 });
@@ -196,13 +224,86 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
       });
     }
 
-    const { prompt, type, settings, emailContext } = value;
+    const { prompt, type, settings: requestSettings, emailContext } = value;
     const userId = req.user!.uid;
+    const userEmail = req.user!.email;
     const requestedAt = new Date();
+
+    // Fetch user settings from database
+    let userSettings: Partial<AISettings> = {};
+    if (userEmail) {
+      try {
+        const userRecord = await userService.getUserByEmail(userEmail);
+        if (userRecord) {
+          // Extract all AISettings fields from user record
+          userSettings = {
+            // Screen 1 - Identity & Basics
+            userName: userRecord.userName,
+            defaultGreeting: userRecord.defaultGreeting,
+            preferredClosing: userRecord.preferredClosing,
+            jobTitleOrCompany: userRecord.jobTitleOrCompany,
+            
+            // Screen 2 - Tone and Writing Structure
+            emailLength: userRecord.emailLength,
+            emailTone: userRecord.emailTone,
+            customTones: userRecord.customTones,
+            
+            // Screen 3 - Formatting & Style
+            formattingPreferences: userRecord.formattingPreferences,
+            customFormattings: userRecord.customFormattings,
+            writingStylePreferences: userRecord.writingStylePreferences,
+            customWritingStyle: userRecord.customWritingStyle,
+            phrasesToAvoid: userRecord.phrasesToAvoid,
+            customPhraseToAvoid: userRecord.customPhraseToAvoid,
+            
+            // Screen 4 - Context & Language Behavior
+            followUpEmailBehavior: userRecord.followUpEmailBehavior,
+            defaultLanguage: userRecord.defaultLanguage,
+            defaultSummaryLanguage: userRecord.defaultSummaryLanguage,
+            languageDetection: userRecord.languageDetection,
+            
+            // Screen 5 - Model & Custom Rules
+            aiModel: userRecord.aiModel,
+            customInstructions: userRecord.customInstructions,
+            
+            // Legacy fields (for backward compatibility)
+            language: userRecord.language,
+            tone: userRecord.tone,
+            length: userRecord.length
+          };
+        }
+      } catch (settingsError) {
+        logger.warn('Failed to load user settings, using request settings only', {
+          userId,
+          email: userEmail,
+          error: (settingsError as Error).message
+        });
+      }
+    }
+
+    // Merge user settings with request settings (request settings override user defaults)
+    const mergedSettings: AISettings = {
+      ...userSettings,
+      ...requestSettings,
+      // Ensure customInstructions are merged (not replaced)
+      customInstructions: [
+        ...(userSettings.customInstructions || []),
+        ...(requestSettings.customInstructions || [])
+      ].filter((instruction, index, arr) => 
+        typeof instruction === 'string' && 
+        instruction.trim().length > 0 &&
+        arr.findIndex(i => i.toLowerCase() === instruction.toLowerCase()) === index
+      ),
+      // Ensure aiModel is set (request overrides user, fallback to default)
+      aiModel: requestSettings.aiModel || userSettings.aiModel || 'default'
+    };
+
+    // Use merged settings for model selection
+    const effectiveModel = mergedSettings.aiModel || 'default';
 
     const planType = await getUserPlanType(userId);
 
-    const usageAttempt = await usageTrackerService.consumeUsage(userId, planType, settings.aiModel, requestedAt);
+    const usageAttempt = await usageTrackerService.consumeUsage(userId, planType, effectiveModel, requestedAt);
 
     if (!usageAttempt.allowed) {
       res.status(429).json({
@@ -219,18 +320,19 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
 
     logger.info('Email generation started', {
       userId,
-      model: settings.aiModel,
+      model: effectiveModel,
       type,
       promptLength: prompt.length,
-      hasContext: !!emailContext
+      hasContext: !!emailContext,
+      hasUserSettings: Object.keys(userSettings).length > 0
     });
 
     const startTime = Date.now();
-    // Generate email using AI service
-    const result = await aiService.generateEmail(prompt, settings, emailContext);
+    // Generate email using AI service with merged settings
+    const result = await aiService.generateEmail(prompt, mergedSettings, emailContext);
     const processingTime = Date.now() - startTime;
 
-    logger.logAI(settings.aiModel, 'email_generation', userId, {
+    logger.logAI(effectiveModel, 'email_generation', userId, {
       inputTokens: result.tokensUsed?.input || 0,
       outputTokens: result.tokensUsed?.output || 0,
       totalTokens: result.tokensUsed?.total || 0
@@ -239,10 +341,10 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
     // Log usage for analytics (separate from quota tracking)
     await logUsage(userId, {
       type,
-      model: settings.aiModel,
-      language: settings.language,
-      tone: settings.tone,
-      length: settings.length,
+      model: effectiveModel,
+      language: mergedSettings.language || mergedSettings.defaultLanguage || 'auto',
+      tone: mergedSettings.tone || mergedSettings.emailTone || 'auto',
+      length: mergedSettings.length || mergedSettings.emailLength || 'auto',
       promptLength: prompt.length,
       responseLength: result.body.length,
       tokensUsed: result.tokensUsed,
@@ -267,7 +369,7 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
 
   } catch (error) {
     const userId = req.user?.uid;
-    const model = req.body?.settings?.aiModel;
+    const model = req.body?.settings?.aiModel || 'default';
     if (userId && model) {
       try {
         await usageTrackerService.rollbackUsage(userId, model, new Date());

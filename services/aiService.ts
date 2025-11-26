@@ -210,24 +210,95 @@ class AIService {
   }
 
   private buildSystemPrompt(settings: AISettings, emailContext?: EmailContextInput): string {
-    const { language, tone, length, customInstructions } = settings;
+    // Extract all settings with fallbacks
+    const language = settings.language || settings.defaultLanguage || 'auto';
+    const tone = settings.tone || settings.emailTone || 'auto';
+    const length = settings.length || settings.emailLength || 'auto';
+    const customInstructions = settings.customInstructions || [];
     
-    let systemPrompt = `You are an AI email assistant. Generate professional emails based on user requests.
+    let systemPrompt = `
+You are an AI email assistant. Generate professional emails based on user requests.
 
-Requirements:
-- Always respond with valid JSON in this exact format: {"subject": "Email Subject", "body": "Email Body"}
+Rules:
+- You MUST respond ONLY with valid JSON in this exact structure: {"subject": "Email Subject", "body": "Email Body"}
+  - No text outside the JSON.
+  - If the request is unclear, return JSON with minimal content.
 - Write in ${language === 'auto' ? 'the most appropriate language' : language}
 - Use a ${tone === 'auto' ? 'professional' : tone} tone
 - Make it ${length === 'auto' ? 'appropriately' : length} length
-- Be professional, clear, and concise
-- Include proper email formatting with greetings and closings`;
-
-    const formattedContext = formatEmailContext(emailContext);
-    if (formattedContext) {
-      systemPrompt += `\n\nContext from the email being replied to:\n${formattedContext}`;
+`;
+    // Screen 1 - Identity & Basics
+    if (settings.userName) {
+      systemPrompt += `\n- Use the name "${settings.userName}" when referring to yourself`;
+    }
+    
+    if (settings.defaultGreeting) {
+      systemPrompt += `\n- Use this greeting: "${settings.defaultGreeting}"`;
+    }
+    
+    if (settings.preferredClosing) {
+      systemPrompt += `\n- Use this closing: "${settings.preferredClosing}"`;
+    }
+    
+    if (settings.jobTitleOrCompany) {
+      systemPrompt += `\n- Include job title/company context: "${settings.jobTitleOrCompany}"`;
     }
 
-    if (customInstructions && customInstructions.length > 0) {
+    // Screen 2 - Tone and Writing Structure
+    if (settings.emailTone && settings.emailTone !== 'auto') {
+      systemPrompt += `\n- Email tone should be: ${settings.emailTone}`;
+    }
+    
+    if (settings.customTones && settings.customTones.length > 0) {
+      systemPrompt += `\n- Additional tone preferences: ${settings.customTones.join(', ')}`;
+    }
+
+    // Screen 3 - Formatting & Style
+    if (settings.formattingPreferences && settings.formattingPreferences.length > 0) {
+      systemPrompt += `\n- Formatting preferences: ${settings.formattingPreferences.join(', ')}`;
+    }
+    
+    if (settings.customFormattings && settings.customFormattings.length > 0) {
+      systemPrompt += `\n- Custom formatting requirements: ${settings.customFormattings.join(', ')}`;
+    }
+    
+    if (settings.writingStylePreferences && settings.writingStylePreferences.length > 0) {
+      systemPrompt += `\n- Writing style preferences: ${settings.writingStylePreferences.join(', ')}`;
+    }
+    
+    if (settings.customWritingStyle) {
+      systemPrompt += `\n- Custom writing style: ${settings.customWritingStyle}`;
+    }
+    
+    if (settings.phrasesToAvoid && settings.phrasesToAvoid.length > 0) {
+      systemPrompt += `\n- Avoid using these phrases: ${settings.phrasesToAvoid.join(', ')}`;
+    }
+    
+    if (settings.customPhraseToAvoid) {
+      systemPrompt += `\n- Additional phrase to avoid: ${settings.customPhraseToAvoid}`;
+    }
+
+    // Screen 4 - Context & Language Behavior
+    if (settings.followUpEmailBehavior) {
+      systemPrompt += `\n- Follow-up email behavior: ${settings.followUpEmailBehavior}`;
+    }
+    
+    if (settings.languageDetection && settings.languageDetection !== 'auto') {
+      systemPrompt += `\n- Language detection setting: ${settings.languageDetection}`;
+    }
+
+    // Include proper email formatting with greetings and closings
+    systemPrompt += `\n- Include proper email formatting with greetings and closings`;
+
+    if (emailContext) {
+      systemPrompt += `
+        - Follow the user's instructions and the context of the email thread.
+        - Use only information provided.
+        - Do not invent facts.
+        - Context from the email being replied to: ${formatEmailContext(emailContext)}`;
+    }
+
+    if (customInstructions.length > 0) {
       systemPrompt += `\n\nCustom Instructions:\n${customInstructions.join('\n')}`;
     }
 
