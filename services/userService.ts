@@ -28,6 +28,28 @@ class UserService {
   }
 
   /**
+   * Remove undefined values from an object recursively
+   * Firestore doesn't accept undefined values
+   */
+  private removeUndefinedValues(obj: Record<string, unknown>): Record<string, unknown> {
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+          // Recursively clean nested objects
+          const cleanedNested = this.removeUndefinedValues(value as Record<string, unknown>);
+          if (Object.keys(cleanedNested).length > 0) {
+            cleaned[key] = cleanedNested;
+          }
+        } else {
+          cleaned[key] = value;
+        }
+      }
+    }
+    return cleaned;
+  }
+
+  /**
    * Store or update user data after successful authentication
    */
   async storeUser(decodedToken: DecodedIdToken): Promise<StoredUser> {
@@ -63,23 +85,26 @@ class UserService {
             : tokenName.length > 0
               ? decodedToken.name
               : existingData.name,
-          firstName: existingData.firstName ?? tokenFirstName,
-          lastName: existingData.lastName ?? tokenLastName,
+          firstName: existingData.firstName ?? tokenFirstName ?? null,
+          lastName: existingData.lastName ?? tokenLastName ?? null,
           picture: decodedToken.picture || existingData.picture,
           updatedAt: now,
           lastLoginAt: now
         };
         
+        // Remove undefined values before storing to Firestore
+        const cleanedUserData = this.removeUndefinedValues(userData as unknown as Record<string, unknown>);
+        
         // Update the document
-        await userQuery.docs[0].ref.set(userData);
+        await userQuery.docs[0].ref.set(cleanedUserData);
       } else {
         // Create new user with default settings
         userData = {
           uid: userId,
           email: email,
           name: decodedToken.name,
-          firstName: tokenFirstName,
-          lastName: tokenLastName,
+          firstName: tokenFirstName ?? null,
+          lastName: tokenLastName ?? null,
           picture: decodedToken.picture,
           ...DEFAULT_USER_SETTINGS,
           createdAt: now,
@@ -87,8 +112,11 @@ class UserService {
           lastLoginAt: now
         };
         
+        // Remove undefined values before storing to Firestore
+        const cleanedUserData = this.removeUndefinedValues(userData as unknown as Record<string, unknown>);
+        
         // Save new user to Firestore using email as document ID
-        await this.db.collection('users').doc(email).set(userData);
+        await this.db.collection('users').doc(email).set(cleanedUserData);
         isNewUser = true;
       }
       
@@ -300,7 +328,10 @@ class UserService {
         sanitizedUpdates.name = recomposedName || existingData.name;
       }
 
-      await docRef.set(sanitizedUpdates, { merge: true });
+      // Remove undefined values before storing to Firestore
+      const cleanedUpdates = this.removeUndefinedValues(sanitizedUpdates as unknown as Record<string, unknown>);
+      
+      await docRef.set(cleanedUpdates, { merge: true });
 
       const updatedUser: StoredUser = {
         ...existingData,

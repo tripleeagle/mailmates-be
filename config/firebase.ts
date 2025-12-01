@@ -64,7 +64,22 @@ const verifyIdToken = async (idToken: string): Promise<DecodedIdToken> => {
     const decodedToken = await auth.verifyIdToken(idToken);
     return decodedToken;
   } catch (error) {
-    logger.error('Token verification error', { error: (error as Error).message });
+    const errorMessage = (error as Error).message;
+    const errorCode = (error as any).code || '';
+    
+    // Check for project ID mismatch (audience claim error)
+    if (errorMessage.includes('aud') || errorMessage.includes('audience')) {
+      const configuredProjectId = process.env.FIREBASE_PROJECT_ID || 'not configured';
+      logger.error('Token verification error - Project ID mismatch', { 
+        error: errorMessage,
+        code: errorCode,
+        configuredProjectId,
+        hint: 'The Firebase project ID in the token does not match FIREBASE_PROJECT_ID. Ensure both the web app and backend use the same Firebase project.'
+      });
+      throw new Error(`Firebase project mismatch: Token is from a different Firebase project than configured (${configuredProjectId}). Please ensure FIREBASE_PROJECT_ID matches the project used by the web app.`);
+    }
+    
+    logger.error('Token verification error', { error: errorMessage, code: errorCode });
     throw new Error('Invalid token');
   }
 };
