@@ -76,7 +76,10 @@ const updateSettingsSchema = Joi.object({
     // Legacy fields (for backward compatibility)
     language: Joi.string().optional(),
     tone: Joi.string().optional(),
-    length: Joi.string().optional()
+    length: Joi.string().optional(),
+    
+    // Onboarding flags
+    hasSeenCompleteScreen: Joi.boolean().optional()
   }).unknown(true).required() // Allow unknown fields (like createdAt, updatedAt) but ignore them
 });
 
@@ -149,6 +152,9 @@ router.get('/settings', authenticateUser, async (req: Request, res: Response<Api
       language: userData.language,
       tone: userData.tone,
       length: userData.length,
+      
+      // Onboarding flags
+      hasSeenCompleteScreen: userData.hasSeenCompleteScreen,
       
       createdAt: userData.createdAt,
       updatedAt: userData.updatedAt

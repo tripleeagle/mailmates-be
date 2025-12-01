@@ -56,6 +56,9 @@ export interface AISettings {
   language?: string;
   tone?: string;
   length?: string;
+  
+  // Onboarding flags
+  hasSeenCompleteScreen?: boolean;
 }
 
 // Email context types
