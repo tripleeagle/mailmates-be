@@ -2,6 +2,7 @@ import { getFirestore, initializeFirebase } from '../config/firebase';
 import logger from '../config/logger';
 import { User, AISettings } from '../types';
 import { DecodedIdToken } from 'firebase-admin/auth';
+import { DEFAULT_USER_SETTINGS } from '../constants/defaultUserSettings';
 
 export interface StoredUser extends AISettings {
   uid: string;
@@ -80,11 +81,7 @@ class UserService {
           firstName: tokenFirstName,
           lastName: tokenLastName,
           picture: decodedToken.picture,
-          language: 'auto',
-          tone: 'auto',
-          length: 'auto',
-          aiModel: 'default',
-          customInstructions: ['Less AI, more human'],
+          ...DEFAULT_USER_SETTINGS,
           createdAt: now,
           updatedAt: now,
           lastLoginAt: now
