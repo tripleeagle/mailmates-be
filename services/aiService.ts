@@ -307,7 +307,7 @@ Rules:
     return systemPrompt;
   }
 
-  async summarizeEmail(emailContent: EmailContextInput): Promise<string> {
+  async summarizeEmail(emailContent: EmailContextInput, language?: string): Promise<string> {
     if (!this.openai) {
       throw new Error('Email summarization not available - OpenAI API key not configured.');
     }
@@ -318,13 +318,18 @@ Rules:
       throw new Error('Email content is empty.');
     }
 
+    // Build language directive for the system prompt
+    const languageDirective = language && language !== 'auto'
+      ? ` Write the summary in ${language}.`
+      : ' Write the summary in the same language as the email content.';
+
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-nano',
         messages: [
           {
             role: 'system',
-            content: 'You are an email summarizer. Your task is to read the content of an email and generate a clear, concise summary of 1–3 sentences. Focus only on the main points, such as purpose, requests, key updates, or next steps. Exclude greetings, signatures, and unnecessary details. The summary should be neutral, factual, and easy to scan quickly.'
+            content: `You are an email summarizer. Your task is to read the content of an email and generate a clear, concise summary of 1–3 sentences. Focus only on the main points, such as purpose, requests, key updates, or next steps. Exclude greetings, signatures, and unnecessary details. The summary should be neutral, factual, and easy to scan quickly.${languageDirective}`
           },
           {
             role: 'user',

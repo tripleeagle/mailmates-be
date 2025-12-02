@@ -395,7 +395,7 @@ router.post('/', authenticateUser, async (req: Request<{}, ApiResponse<{ email: 
 });
 
 // Summarize email endpoint
-router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<{ summary: string }>, SummarizeRequest>, res: Response<ApiResponse<{ summary: string }>>) => {
+router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<{ summary: string }>, SummarizeRequest>, res: Response<ApiResponse<{ summary: string, summaryLanguage: string }>>) => {
   try {
     const { error, value } = summarizeSchema.validate(req.body);
     if (error) {
@@ -417,10 +417,28 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
     }
 
     const userId = req.user!.uid;
+    const userEmail = req.user!.email;
     const requestedAt = new Date();
     const planType = await getUserPlanType(userId);
-    const model = 'gpt-4o-mini';
+    const model = 'gpt-5-nano';
 
+    // Fetch user's defaultSummaryLanguage setting
+    let summaryLanguage: string | undefined = undefined;
+    if (userEmail) {
+      try {
+        const userRecord = await userService.getUserByEmail(userEmail);
+        if (userRecord?.defaultSummaryLanguage) {
+          summaryLanguage = userRecord.defaultSummaryLanguage;
+        }
+      } catch (settingsError) {
+        logger.warn('Failed to load user summary language setting, using default', {
+          userId,
+          email: userEmail,
+          error: (settingsError as Error).message
+        });
+      }
+    }
+    
     const usageAttempt = await usageTrackerService.consumeUsage(userId, planType, model, requestedAt);
 
     if (!usageAttempt.allowed) {
@@ -435,8 +453,8 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
       });
       return;
     }
-
-    const summary = await aiService.summarizeEmail(emailContent);
+    console.log('summaryLanguage', summaryLanguage);
+    const summary = await aiService.summarizeEmail(emailContent, summaryLanguage);
 
     logger.info('Email summarization completed', {
       userId,
@@ -446,18 +464,18 @@ router.post('/summarize', authenticateUser, async (req: Request<{}, ApiResponse<
     res.json({
       success: true,
       data: {
+        summaryLanguage,
         summary
       },
       metadata: {
         usage: usageAttempt,
       }
     });
-
   } catch (error) {
     const userId = req.user?.uid;
     if (userId) {
       try {
-        await usageTrackerService.rollbackUsage(userId, 'gpt-4o-mini', new Date());
+        await usageTrackerService.rollbackUsage(userId, 'gpt-5-nano', new Date());
       } catch (rollbackError) {
         logger.error('Failed to rollback usage after summarization error', {
           userId,
